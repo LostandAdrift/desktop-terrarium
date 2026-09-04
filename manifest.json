@@ -13,10 +13,10 @@
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",
-    "defaults": { "reducedMotion": false, "showLabel": false, "palette": "auto" },
+    "defaults": { "reducedMotion": false, "palette": "auto", "ambient": false },
     "schema": [
       { "key": "reducedMotion", "type": "boolean", "label": "Reduce motion" },
-      { "key": "showLabel", "type": "boolean", "label": "Show bar label" },
+      { "key": "ambient", "type": "boolean", "label": "Pin a garden behind windows on the first display" },
       { "key": "palette", "type": "string", "label": "Palette: auto, dusk, dawn, moss" }
     ]
   }
