@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.lostandadrift.terrarium",
+  "name": "Desktop Terrarium",
+  "version": "0.1.0",
+  "author": "LostandAdrift",
+  "description": "A living world shaped by your computer's activity. Native, private, and quietly playful.",
+  "license": "MIT",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Terrarium.qml" },
+  "barWidget": {
+    "displayName": "Terrarium",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "reducedMotion": false, "showLabel": false, "palette": "auto" },
+    "schema": [
+      { "key": "reducedMotion", "type": "boolean", "label": "Reduce motion" },
+      { "key": "showLabel", "type": "boolean", "label": "Show bar label" },
+      { "key": "palette", "type": "string", "label": "Palette: auto, dusk, dawn, moss" }
+    ]
+  }
+}
