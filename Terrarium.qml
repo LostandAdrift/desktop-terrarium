@@ -10,6 +10,7 @@ Ui.Panel {
     id:root
     moduleName:"io.github.lostandadrift.terrarium"
     ipcTarget:moduleName
+    manageIpc:false
     implicitWidth:button.implicitWidth
     implicitHeight:button.implicitHeight
 
@@ -43,6 +44,21 @@ Ui.Panel {
             collectorStatus=sample.errors.length?"Some observations are unavailable.":"";
         } catch(error) { collectorStatus="An observation could not be read."; }
     }
+    function instances() {
+        return root.bar && typeof root.bar.moduleWidgets==="function" ? root.bar.moduleWidgets(root.moduleName) : [root];
+    }
+    function activeInstance() {
+        var all=instances();
+        for(var i=0;i<all.length;i++) if(all[i].opened)return all[i];
+        return root;
+    }
+    function runtimeState() {
+        return {opened:root.opened,demo:root.demoMode,stale:root.stale,ambient:root.ambientEnabled,ambientHost:root.ambientHost,
+            collectorRunning:collector.running,collectorPid:collector.processId,
+            samples:root.displayGarden.samples,residents:root.displayGarden.residents.length,
+            reducedMotion:root.reducedMotion,palette:root.paletteName,section:view.section};
+    }
+    function showSection(name) {if(["garden","journal","guide"].indexOf(name)>=0)view.section=name;}
     function open() {
         openedAt=Date.now();now=openedAt;collectorFailed=false;
         root.controller.show();
@@ -79,7 +95,7 @@ Ui.Panel {
         stdout:SplitParser { onRead:function(data){root.acceptSample(data);} }
         stderr:SplitParser { onRead:function(data){ if(root.observing && !root.demoMode)root.collectorStatus="The local observer reported an error."; } }
         onExited:function(exitCode) {
-            if(root.observing && !root.demoMode && exitCode!==0) {
+            if(root.observing && !root.demoMode && !root.collectorRestarting) {
                 root.collectorFailed=true;root.collectorStatus="The local observer stopped. You can try again.";
             }
         }
@@ -162,16 +178,16 @@ Ui.Panel {
     // lifecycle tests. This interface cannot execute arbitrary commands.
     IpcHandler {
         target:"terrarium"
+        enabled:root.ambientHost
         function state():string {
-            return JSON.stringify({opened:root.opened,demo:root.demoMode,stale:root.stale,ambient:root.ambientEnabled,ambientHost:root.ambientHost,
-                collectorRunning:collector.running,collectorPid:collector.processId,
-                samples:root.displayGarden.samples,residents:root.displayGarden.residents.length,
-                reducedMotion:root.reducedMotion,palette:root.paletteName,section:view.section});
+            return JSON.stringify(root.activeInstance().runtimeState());
         }
-        function demo():void {root.toggleDemo();}
-        function motion():void {root.persist("reducedMotion",!root.reducedMotion);}
+        function allStates():string {return JSON.stringify(root.instances().map(function(item){return item.runtimeState();}));}
+        function demo():void {root.activeInstance().toggleDemo();}
+        function motion():void {root.activeInstance().persist("reducedMotion",!root.reducedMotion);}
         function palette():void {root.cyclePalette();}
         function ambient():void {root.persist("ambient",!root.ambientEnabled);}
-        function section(name:string):void {if(["garden","journal","guide"].indexOf(name)>=0)view.section=name;}
+        function retry():void {root.activeInstance().retry();}
+        function section(name:string):void {root.activeInstance().showSection(name);}
     }
 }

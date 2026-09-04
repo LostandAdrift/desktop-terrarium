@@ -1,0 +1,30 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native-view-and-model:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 15
+    steps:
+      - name: Install the native test runtime
+        run: pacman -Syu --noconfirm --needed git nodejs python qt6-declarative qt6-svg ttf-liberation
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test the collector and state model
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          node --test tests/*.test.cjs
+      - name: Test the real QtQuick view without a desktop
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QPA_PLATFORMTHEME: ""
+          QT_STYLE_OVERRIDE: Fusion
+          QT_QUICK_BACKEND: software
+        run: /usr/lib/qt6/bin/qmltestrunner -input tests -o -,txt
+
