@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Install the native test runtime
-        run: pacman -Syu --noconfirm --needed git nodejs python qt6-declarative qt6-svg ttf-liberation
+        run: pacman -Syu --noconfirm --needed git nodejs python qt6-declarative qt6-svg ttf-liberation quickshell
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test the collector and state model
         run: |
@@ -27,4 +27,5 @@ jobs:
           QT_STYLE_OVERRIDE: Fusion
           QT_QUICK_BACKEND: software
         run: /usr/lib/qt6/bin/qmltestrunner -input tests -o -,txt
-
+      - name: Test shared observer shutdown and recovery without windows
+        run: bash scripts/check-store.sh

@@ -26,7 +26,7 @@ QtObject {
     readonly property bool observing: Object.keys(watches).length > 0
     readonly property bool collectorRunning: collector.running
     readonly property int collectorPid: collector.running && collector.processId > 0 ? collector.processId : 0
-    readonly property bool stale: observing && (failed || now - Math.max(observedAt, lastSample) > 9000)
+    readonly property bool stale: observing && (failed || (restarting && retryTicks >= 8) || now - Math.max(observedAt, lastSample) > 9000)
 
     function watch(key, enabled) {
         if (enabled === false) {
@@ -82,7 +82,7 @@ QtObject {
     }
 
     function acceptSample(data) {
-        if (!root.observing || data === undefined || data === null)
+        if (!root.observing || root.restarting || root.failed || data === undefined || data === null)
             return;
         var line = String(data);
         if (!line.length || line.length > 131072)
@@ -138,7 +138,7 @@ QtObject {
         }
         stderr: SplitParser {
             onRead: function(data) {
-                if (root.observing)
+                if (root.observing && !root.restarting && !root.failed)
                     root.status = "The local observer reported an error.";
             }
         }
@@ -170,16 +170,15 @@ QtObject {
             root.now = Date.now();
             if (!root.restarting)
                 return;
-            root.retryTicks += 1;
+            root.retryTicks = Math.min(8, root.retryTicks + 1);
             if (root.retryTicks >= 8) {
-                if (!root.collector.running) {
+                if (!root.collector.running && !root.spawned) {
+                    // A failed start may have no exit signal. A child that
+                    // actually started retains ownership until onExited.
                     root.awaitingExit = false;
                     root.syncCollector();
                 } else {
-                    root.failed = true;
-                    root.restarting = false;
-                    root.awaitingExit = false;
-                    root.status = "The local observer stopped. You can try again.";
+                    root.status = "Waiting for the previous observer to stop…";
                 }
                 return;
             }

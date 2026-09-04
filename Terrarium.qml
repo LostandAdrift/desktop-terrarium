@@ -142,7 +142,7 @@ Ui.Panel {
             anchors.fill:parent
             palette:Model.palette(root.paletteName,new Date(root.now).getHours())
             residents:root.liveGarden.residents;weather:Model.weather(root.liveSnapshot)
-            animate:ambientWindow.visible && !root.reducedMotion && !root.stale
+            animate:ambientWindow.visible && !root.reducedMotion && !Local.Habitat.stale
             enabled:false
         }
     }

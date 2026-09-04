@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import select
 import shutil
 import subprocess
 import sys
@@ -707,8 +708,61 @@ class CliTests(unittest.TestCase):
         data = json.loads(buf.getvalue().strip())
         self.assertEqual(data["version"], 1)
 
+    def test_termination_interrupts_an_inflight_sample(self) -> None:
+        script = '''
+import runpy, sys, time
+module = runpy.run_path(sys.argv[1])
+class SlowCollector:
+    _time = staticmethod(time.time)
+    def sample(self):
+        print("sampling", file=sys.stderr, flush=True)
+        time.sleep(30)
+        return {}
+sys.exit(module["run_stream"](SlowCollector(), 1))
+'''
+        proc = subprocess.Popen(
+            [sys.executable, "-u", "-c", script, str(COLLECT_PATH)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            self.assertTrue(select.select([proc.stderr], [], [], 5)[0], "sample did not start")
+            self.assertEqual(proc.stderr.readline().strip(), "sampling")
+            proc.terminate()
+            out, err = proc.communicate(timeout=2)
+            self.assertEqual(proc.returncode, 0, err)
+            self.assertEqual(out, "", "cancellation emitted a partial or failed sample")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.communicate()
+
 
 class WaitAndArgparseTests(unittest.TestCase):
+    def test_zero_wait_still_observes_stdin_eof(self) -> None:
+        read_fd, write_fd = os.pipe()
+        os.close(write_fd)
+        try:
+            state = collect.RunState()
+            self.assertTrue(collect.wait_for_stop(0, state, read_fd))
+            self.assertTrue(state.stop)
+        finally:
+            os.close(read_fd)
+
+    def test_sample_overrun_still_gives_the_desktop_a_rest(self) -> None:
+        clock = Clock()
+        observer = mock.Mock()
+        def slow_sample():
+            clock.advance(3)
+            return collect.empty_sample(int(clock.time()))
+        observer.sample.side_effect = slow_sample
+        with mock.patch.object(collect.time, "monotonic", clock.monotonic), \
+             mock.patch.object(collect, "emit_sample"), \
+             mock.patch.object(collect, "stdin_watch_fd", return_value=None), \
+             mock.patch.object(collect, "wait_for_stop", return_value=True) as wait:
+            self.assertEqual(collect.run_stream(observer, 1), 0)
+        observer.sample.assert_called_once()
+        self.assertGreaterEqual(wait.call_args.args[0], 1)
+
     def test_wait_returns_immediately_when_seconds_non_positive(self) -> None:
         state = collect.RunState()
         self.assertFalse(collect.wait_for_stop(0, state, None))

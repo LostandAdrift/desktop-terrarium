@@ -267,6 +267,13 @@ class RunState:
         self.stop = False
 
 
+class StopStreaming(SystemExit):
+    """Unwind an in-flight read immediately on an intentional stop signal.
+
+    This bypasses the sample-error handler: cancellation is not missing data.
+    """
+
+
 def sanitize_name(value: str | None) -> str:
     if not value:
         return "unknown"
@@ -914,8 +921,7 @@ def collect_once(
 def emit_sample(sample: dict, file=None) -> None:
     file = sys.stdout if file is None else file
     line = json.dumps(sample, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-    file.write(line)
-    file.write("\n")
+    file.write(line + "\n")
     file.flush()
 
 
@@ -980,15 +986,17 @@ def wait_for_stop(seconds: float, state: RunState, stdin_fd: int | None) -> bool
     """Sleep up to seconds. True means the caller should stop streaming."""
     if state.stop:
         return True
-    if seconds <= 0:
-        return False
-    deadline = time.monotonic() + seconds
+    deadline = time.monotonic() + max(0, seconds)
+    first_poll = True
     while not state.stop:
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if remaining <= 0 and not first_poll:
             return False
-        chunk = remaining if remaining < 0.5 else 0.5
+        first_poll = False
+        chunk = max(0, min(remaining, 0.5))
         if stdin_fd is None:
+            if chunk == 0:
+                return False
             try:
                 time.sleep(chunk)
             except InterruptedError:
@@ -1022,6 +1030,7 @@ def run_stream(collector: Collector, interval: float) -> int:
 
     def _request_stop(signum, frame) -> None:
         state.stop = True
+        raise StopStreaming()
 
     previous = {}
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
@@ -1065,13 +1074,13 @@ def run_stream(collector: Collector, interval: float) -> int:
             if state.stop:
                 break
             spent = time.monotonic() - started
-            remaining = interval - spent
-            if remaining < 0:
-                remaining = 0
+            # An unusually slow scan must still yield to the desktop. Do not
+            # turn an interval overrun into continuous procfs scanning.
+            remaining = interval if spent >= interval else interval - spent
             if wait_for_stop(remaining, state, stdin_fd):
                 break
         return 0
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, StopStreaming):
         return 0
     except BrokenPipeError:
         return 0

@@ -10,10 +10,10 @@ python3 -u scripts/collect.py --once
 python3 -u scripts/collect.py --once --proc-root /path/to/fake/proc
 ```
 
-- `--interval` is the target sleep between stream samples. Allowed range is `[1, 60]` seconds. Values outside that range are an argparse error, not a silent clamp. Default is `2`.
+- `--interval` is the target cadence between stream samples. Allowed range is `[1, 60]` seconds. Values outside that range are an argparse error, not a silent clamp. Default is `2`. If a scan overruns that cadence, the observer rests for one full configured interval before scanning again.
 - `--once` emits a single sample immediately and exits. There is no delay. Rate fields that need two observations are `null`.
 - `--proc-root` defaults to `/proc`. Tests pass a synthetic tree. The live collector must not be pointed at arbitrary filesystem paths that are not procfs-shaped.
-- Stream mode continues until stdin EOF on a TTY/pipe/socket, `SIGINT`, `SIGTERM`, `SIGHUP`, or a broken stdout pipe. `/dev/null` stdin is not treated as EOF. Each line is flushed. Failures still wait out the interval so the process cannot busy-loop.
+- Stream mode continues until stdin EOF on a TTY/pipe/socket, `SIGINT`, `SIGTERM`, `SIGHUP`, or a broken stdout pipe. `/dev/null` stdin is not treated as EOF. Each line is flushed. Stop signals unwind an in-flight sample immediately; cancellation does not emit a failed sample. Failures and cadence overruns wait out an interval so the process cannot busy-loop. Even a zero-duration wait checks stdin for EOF.
 - The module is importable: `Collector`, `collect_once`, parsers, and `main(argv)`.
 
 No files are written. Previous counters live only in process memory for delta math.
@@ -151,4 +151,4 @@ Treat process disappearance as disappearance. The collector does not decide that
 - At most 4096 `/proc` PID directories visited per sample.
 - Individual proc files are read with a 64 KiB cap.
 - Stream wait uses `select`/`sleep` in ≤0.5 s slices. It does not spin.
-- The plugin stops its collector when closed or switched into demonstration mode. Quickshell owns the child process lifecycle. Closing a stdout pipe or receiving SIGTERM also stops the collector; simply ceasing to read stdout is not sufficient.
+- All displays share one observer. It stops when no live panel or pinned scene needs observations. A demo panel uses synthetic data; a pinned live scene may continue observing separately. Quickshell owns the child process lifecycle. Closing a stdout pipe or receiving SIGTERM also stops the collector; simply ceasing to read stdout is not sufficient.

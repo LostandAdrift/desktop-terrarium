@@ -13,7 +13,7 @@ function hash(text) {
 function random(seed) { var s = seed >>> 0; return function() { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
 
 var categories = ["browser", "editor", "terminal", "agent", "media", "system", "other"];
-var speciesNames = { browser: "Canopy tree", editor: "Ink fern", terminal: "Copper fern", agent: "Lantern bloom", media: "Bellflower", system: "Moss colony", other: "Wild sprout" };
+var speciesNames = { browser: "Canopy tree", editor: "Ink fern", terminal: "Copper fern", agent: "Lantern bloom", media: "Bellflower", system: "Mushroom colony", other: "Wild sprout" };
 var positions = [{x:305,y:342}, {x:582,y:356}, {x:438,y:381}, {x:229,y:408}, {x:667,y:411}, {x:365,y:445}, {x:550,y:450}];
 
 function emptySnapshot() {

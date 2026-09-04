@@ -45,7 +45,7 @@ def until_all_stopped(timeout=5):
     raise AssertionError('A monitor retained an observer after dismissal')
 
 
-def run(fault=False, stress=False):
+def run(fault=False, stress=False, stall=False):
     original = state()
     checks = []
     try:
@@ -85,6 +85,26 @@ def run(fault=False, stress=False):
         previous_samples = state()['samples']
         until(lambda s: s['opened'] and s['collectorRunning'] and not s['stale'] and s['samples'] > previous_samples)
         checks.append('reopening restarts observation')
+        if stall:
+            # Deliberately hold only the owned observer past the shutdown
+            # watchdog, then let the queued SIGTERM complete. No second retry
+            # should be needed and no replacement may overlap the old child.
+            held_pid = state()['collectorPid']
+            assert isinstance(held_pid, int) and held_pid > 1
+            os.kill(held_pid, signal.SIGSTOP)
+            try:
+                call('terrarium', 'retry')
+                time.sleep(10)
+                held = state()
+                assert held['collectorPid'] == held_pid and held['stale'], json.dumps(held)
+            finally:
+                try:
+                    os.kill(held_pid, signal.SIGCONT)
+                except ProcessLookupError:
+                    pass
+            prior = state()['liveSamples']
+            until(lambda s: s['collectorRunning'] and s['collectorPid'] != held_pid and not s['stale'] and s['liveSamples'] > prior)
+            checks.append('a stalled intentional shutdown resumes without a second retry or overlapping observer')
         if stress:
             # Immediate pairs exercise shutdown/start races without assuming
             # a subprocess has exited by the time hide() returns.
@@ -128,6 +148,8 @@ def run(fault=False, stress=False):
                 call('terrarium', 'ambient')
             if not original['opened']:
                 call('shell', 'hide', PLUGIN)
+            elif not current['opened']:
+                call('shell', 'summon', PLUGIN, '{}')
         except (subprocess.SubprocessError, ValueError, RuntimeError):
             pass
 
@@ -136,5 +158,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fault', action='store_true', help='also terminate the plugin-owned observer and verify recovery')
     parser.add_argument('--stress', action='store_true', help='also exercise rapid lifecycle transitions and pinned mode')
+    parser.add_argument('--stall', action='store_true', help='hold only the owned observer for 10 seconds to test delayed shutdown')
     args = parser.parse_args()
-    run(args.fault, args.stress)
+    run(args.fault, args.stress, args.stall)
