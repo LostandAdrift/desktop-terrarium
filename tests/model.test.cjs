@@ -62,4 +62,8 @@ test('weather and display formats stay finite at extreme values', () => {
 test('demo fixture is explicit, deterministic and does not need a real account', () => {
     assert.deepEqual(plain(model.demoSnapshot(3)),plain(model.demoSnapshot(3)));
     assert.deepEqual(plain(model.demoSnapshot(3).network.interfaces),['demo']);
+    let state=model.newGarden();
+    for(let t=0;t<100;t++)state=model.updateGarden(state,model.demoSnapshot(t),1700000000000+t*2000);
+    assert.ok(state.notes.some(n=>n.kind==='arrival'));
+    assert.ok(state.notes.some(n=>n.kind==='departed'));
 });

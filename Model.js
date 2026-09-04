@@ -133,7 +133,7 @@ function palette(name, hour) {
 
 function demoSnapshot(step) {
     var t = step || 0;
-    return normalize({ version:1, timestamp:1700000000 + t * 2, interval:2, cpu:23 + Math.sin(t / 7) * 12,
+    var sample = { version:1, timestamp:1700000000 + t * 2, interval:2, cpu:23 + Math.sin(t / 7) * 12,
         memory:{ usedBytes:7301444403, totalBytes:17179869184, percent:42.5 },
         network:{ rxBytesPerSec:262144 * (1.3 + Math.sin(t / 9)), txBytesPerSec:18432, interfaces:["demo"] },
         processes:[
@@ -143,5 +143,10 @@ function demoSnapshot(step) {
             {key:"ghostty", name:"Ghostty", count:2, cpu:0.9, memoryBytes:178257920, category:"terminal"},
             {key:"music", name:"Music", count:1, cpu:1.3, memoryBytes:293601280, category:"media"},
             {key:"files", name:"Files", count:1, cpu:0.2, memoryBytes:73400320, category:"other"}
-        ], processCount:84, uptimeSeconds:20432, errors:[] });
+        ], processCount:84, uptimeSeconds:20432+t*2, errors:[] };
+    // A repeatable arrival/departure lets the journal demonstrate its actual
+    // behavior. These names and counters are invented, never host activity.
+    if(t%90>=28 && t%90<60)
+        sample.processes[5]={key:"builder",name:"Builder",count:2,cpu:4.8,memoryBytes:134217728,category:"agent"};
+    return normalize(sample);
 }

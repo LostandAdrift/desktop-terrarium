@@ -5,6 +5,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Ui as Ui
 import "Model.js" as Model
+import "runtime" as Local
 
 Ui.Panel {
     id:root
@@ -14,36 +15,28 @@ Ui.Panel {
     implicitWidth:button.implicitWidth
     implicitHeight:button.implicitHeight
 
-    property var liveSnapshot:Model.emptySnapshot()
-    property var liveGarden:Model.newGarden()
+    readonly property var liveSnapshot:Local.Habitat.snapshot
+    readonly property var liveGarden:Local.Habitat.garden
     property var demoGarden:Model.newGarden()
     property int demoStep:0
     property bool demoMode:false
-    property bool collectorFailed:false
-    property bool collectorRestarting:false
-    property string collectorStatus:"Connecting to your desktop…"
-    property real openedAt:0
-    property real lastSample:0
-    property real now:Date.now()
+    property bool storeReady:false
+    readonly property string watchKey:"panel-"+Date.now()+"-"+Math.random().toString(16).slice(2)
+    readonly property real now:Local.Habitat.now || Date.now()
     readonly property bool reducedMotion:setting("reducedMotion",false)===true
     readonly property bool ambientEnabled:setting("ambient",false)===true
     readonly property bool ambientHost:button.QsWindow.window !== null && button.QsWindow.window.screen === Quickshell.screens[0]
-    readonly property bool observing:opened || (ambientEnabled && ambientHost)
+    readonly property bool observing:(opened && !demoMode) || (ambientEnabled && ambientHost)
     readonly property string paletteName:String(setting("palette","auto"))
-    readonly property bool stale:observing && !demoMode && (collectorFailed || now-Math.max(openedAt,lastSample)>9000)
+    readonly property bool stale:!demoMode && Local.Habitat.stale
     readonly property var displaySnapshot:demoMode?Model.demoSnapshot(demoStep):liveSnapshot
     readonly property var displayGarden:demoMode?demoGarden:liveGarden
 
-    function acceptSample(data) {
-        if(data.length>131072)return;
-        try {
-            var sample=Model.normalize(JSON.parse(data));
-            liveSnapshot=sample;
-            lastSample=Date.now();now=lastSample;
-            liveGarden=Model.updateGarden(liveGarden,sample,lastSample);
-            collectorStatus=sample.errors.length?"Some observations are unavailable.":"";
-        } catch(error) { collectorStatus="An observation could not be read."; }
-    }
+    function syncWatch() {if(storeReady)Local.Habitat.watch(watchKey,observing);}
+    onObservingChanged:syncWatch()
+    Component.onCompleted:{storeReady=true;syncWatch();}
+    Component.onDestruction:Local.Habitat.unwatch(watchKey)
+
     function instances() {
         return root.bar && typeof root.bar.moduleWidgets==="function" ? root.bar.moduleWidgets(root.moduleName) : [root];
     }
@@ -54,15 +47,13 @@ Ui.Panel {
     }
     function runtimeState() {
         return {opened:root.opened,demo:root.demoMode,stale:root.stale,ambient:root.ambientEnabled,ambientHost:root.ambientHost,
-            collectorRunning:collector.running,collectorPid:collector.processId,
+            collectorRunning:Local.Habitat.collectorRunning,collectorPid:Local.Habitat.collectorPid,
+            watching:root.observing,liveSamples:root.liveGarden.samples,watcherCount:Object.keys(Local.Habitat.watches).length,
+            ambientVisible:ambientWindow.visible,
             samples:root.displayGarden.samples,residents:root.displayGarden.residents.length,
             reducedMotion:root.reducedMotion,palette:root.paletteName,section:view.section};
     }
     function showSection(name) {if(["garden","journal","guide"].indexOf(name)>=0)view.section=name;}
-    function open() {
-        openedAt=Date.now();now=openedAt;collectorFailed=false;
-        root.controller.show();
-    }
     function persist(key,value) {
         var entry={id:root.moduleName};
         for(var k in root.settings) if(k!=="id") entry[k]=root.settings[k];
@@ -80,30 +71,11 @@ Ui.Panel {
             var g=Model.newGarden();
             for(var i=0;i<35;i++)g=Model.updateGarden(g,Model.demoSnapshot(i),Date.now()-(35-i)*2000);
             demoGarden=g;
+            demoStep=35;
         }
-        if(!demoMode){openedAt=Date.now();collectorFailed=false;}
     }
-    function retry() {
-        collectorRestarting=true;collectorFailed=false;openedAt=Date.now();now=openedAt;
-        Qt.callLater(function(){root.collectorRestarting=false;});
-    }
+    function retry() {Local.Habitat.retry();}
 
-    Process {
-        id:collector
-        command:["python3","-u",decodeURIComponent(Qt.resolvedUrl("scripts/collect.py").toString().replace(/^file:\/\//,"")),"--interval","2"]
-        running:root.observing && !root.demoMode && !root.collectorFailed && !root.collectorRestarting
-        stdout:SplitParser { onRead:function(data){root.acceptSample(data);} }
-        stderr:SplitParser { onRead:function(data){ if(root.observing && !root.demoMode)root.collectorStatus="The local observer reported an error."; } }
-        onExited:function(exitCode) {
-            if(root.observing && !root.demoMode && !root.collectorRestarting) {
-                root.collectorFailed=true;root.collectorStatus="The local observer stopped. You can try again.";
-            }
-        }
-    }
-    Timer {
-        interval:1000;running:root.observing;repeat:true
-        onTriggered:root.now=Date.now()
-    }
     Timer {
         interval:2000;running:root.opened && root.demoMode;repeat:true
         onTriggered:{root.demoStep++;root.demoGarden=Model.updateGarden(root.demoGarden,Model.demoSnapshot(root.demoStep),Date.now());}
@@ -143,7 +115,7 @@ Ui.Panel {
             active:root.opened;demo:root.demoMode;stale:root.stale
             ambient:root.ambientEnabled
             hour:new Date(root.now).getHours()
-            status:root.stale?(root.collectorStatus || "Waiting for the local observer…"):root.collectorStatus
+            status:root.stale?(Local.Habitat.status || "Waiting for the local observer…"):Local.Habitat.status
             onCloseRequested:root.close()
             onDemoRequested:root.toggleDemo()
             onMotionRequested:root.persist("reducedMotion",!root.reducedMotion)

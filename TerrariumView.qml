@@ -17,7 +17,7 @@ FocusScope {
     property bool stale: false
     property string section: "garden"
     property string selectedKey: ""
-    readonly property bool compact: width < 850
+    readonly property bool compact: width < 850 || height < 640
     readonly property var colors: Model.palette(paletteName, hour)
     readonly property var atmosphere: Model.weather(snapshot)
     readonly property var selected: {
@@ -35,8 +35,22 @@ FocusScope {
         if (!garden.residents.length) return;
         var index = -1;
         for (var i=0;i<garden.residents.length;i++) if(garden.residents[i].key===selectedKey) index=i;
-        index=(index+direction+garden.residents.length)%garden.residents.length;
+        index=index<0?(direction>0?0:garden.residents.length-1):(index+direction+garden.residents.length)%garden.residents.length;
         selectedKey=garden.residents[index].key;
+    }
+    function scrollSection(key) {
+        var target=section==="guide"?guideScroll:section==="journal"?journalScroll:null;
+        if(!target)return false;
+        var end=Math.max(0,target.contentHeight-target.height),offset=target.contentY;
+        if(key===Qt.Key_Home)offset=0;
+        else if(key===Qt.Key_End)offset=end;
+        else if(key===Qt.Key_Down)offset+=40;
+        else if(key===Qt.Key_Up)offset-=40;
+        else if(key===Qt.Key_PageDown)offset+=target.height*.8;
+        else if(key===Qt.Key_PageUp)offset-=target.height*.8;
+        else return false;
+        target.contentY=Math.max(0,Math.min(end,offset));
+        return true;
     }
     Keys.onPressed: function(event) {
         if(event.key===Qt.Key_Escape) { if(section!=="garden")section="garden";else root.closeRequested(); }
@@ -46,6 +60,7 @@ FocusScope {
         else if(event.key===Qt.Key_P) root.motionRequested();
         else if(event.key===Qt.Key_D) root.demoRequested();
         else if(event.key===Qt.Key_C) root.paletteRequested();
+        else if(root.scrollSection(event.key)) {}
         else if(event.key===Qt.Key_Right || event.key===Qt.Key_Down) root.moveSelection(1);
         else if(event.key===Qt.Key_Left || event.key===Qt.Key_Up) root.moveSelection(-1);
         else return;
@@ -96,11 +111,16 @@ FocusScope {
                     selectedKey:root.selectedKey
                     onResidentSelected:function(key){root.selectedKey=root.selectedKey===key?"":key;}
                 }
-                Column {
-                    visible:root.snapshot.timestamp===0 || root.stale
-                    anchors.horizontalCenter:parent.horizontalCenter;anchors.bottom:parent.bottom;anchors.bottomMargin:10;spacing:8
-                    Text { anchors.horizontalCenter:parent.horizontalCenter;text:root.status;textFormat:Text.PlainText;color:root.colors.muted;font.pixelSize:12 }
-                    Control { visible:root.stale;anchors.horizontalCenter:parent.horizontalCenter;text:"Try again";onClicked:root.retryRequested() }
+                Item {
+                    visible:!root.demo && (root.snapshot.timestamp===0 || root.stale || root.status.length>0)
+                    width:Math.min(parent.width-24,440);height:noticeContent.implicitHeight+20
+                    anchors.horizontalCenter:parent.horizontalCenter;anchors.bottom:parent.bottom;anchors.bottomMargin:10
+                    Rectangle { anchors.fill:parent;radius:6;color:root.colors.panel;border.color:root.colors.line }
+                    Column {
+                        id:noticeContent;x:10;y:10;width:parent.width-20;spacing:8
+                        Text { width:parent.width;text:root.status;textFormat:Text.PlainText;horizontalAlignment:Text.AlignHCenter;wrapMode:Text.WordWrap;color:root.colors.ink;font.pixelSize:12 }
+                        Control { visible:root.stale;anchors.horizontalCenter:parent.horizontalCenter;text:"Try again";onClicked:root.retryRequested() }
+                    }
                 }
                 Text {
                     visible:root.compact && root.selected!==null
@@ -116,6 +136,7 @@ FocusScope {
                 Text { text:"Field notes";font.family:"serif";font.pixelSize:29;color:root.colors.ink }
                 Text { y:42;width:parent.width;text:"Small arrivals and departures, observed this session.";color:root.colors.muted;font.pixelSize:12;wrapMode:Text.WordWrap }
                 ListView {
+                    id:journalScroll;objectName:"journalScroll"
                     y:82;width:parent.width;height:parent.height-82;clip:true;spacing:14
                     model:root.garden.notes
                     boundsBehavior:Flickable.StopAtBounds
@@ -133,6 +154,7 @@ FocusScope {
             }
 
             Flickable {
+                id:guideScroll;objectName:"guideScroll"
                 visible:root.section==="guide"
                 x:12;y:39;width:parent.width-24;height:parent.height-153
                 contentWidth:width;contentHeight:guide.implicitHeight;clip:true;boundsBehavior:Flickable.StopAtBounds
@@ -169,7 +191,7 @@ FocusScope {
                 Reading {
                     width:(readings.width-20)/3
                     heading:"THE POND";value:Model.formatPercent(root.snapshot.memory.percent)
-                    detail:Model.formatBytes(root.snapshot.memory.usedBytes)+" memory";points:root.atmosphere.water
+                    detail:root.snapshot.memory.percent===null?"Memory unavailable":Model.formatBytes(root.snapshot.memory.usedBytes)+" memory";points:root.atmosphere.water
                 }
                 Reading {
                     width:(readings.width-20)/3

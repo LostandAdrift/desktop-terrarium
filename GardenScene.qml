@@ -105,10 +105,10 @@ Item {
                 Rectangle {
                     visible:parent.selected || hit.containsMouse
                     anchors.horizontalCenter:parent.horizontalCenter
-                    y:138;width:label.implicitWidth+18;height:24;radius:4
+                    y:138;width:Math.min(label.implicitWidth+18,220);height:24;radius:4
                     color:root.palette.panel;border.color:root.palette.line
                     Text {
-                        id:label;anchors.centerIn:parent;text:modelData.name
+                        id:label;anchors.centerIn:parent;width:parent.width-18;text:modelData.name;elide:Text.ElideRight
                         textFormat:Text.PlainText;color:root.palette.ink;font.pixelSize:11
                     }
                 }

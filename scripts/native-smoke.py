@@ -35,7 +35,17 @@ def until(predicate, timeout=10):
     raise AssertionError('Runtime condition timed out: ' + json.dumps(state()))
 
 
-def run(fault=False):
+def until_all_stopped(timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        values = json.loads(call('terrarium', 'allStates'))
+        if values and not any(s['collectorRunning'] or s['opened'] for s in values):
+            return
+        time.sleep(0.25)
+    raise AssertionError('A monitor retained an observer after dismissal')
+
+
+def run(fault=False, stress=False):
     original = state()
     checks = []
     try:
@@ -69,13 +79,43 @@ def run(fault=False):
             until(lambda s: s['collectorRunning'] and not s['stale'])
             checks.append('observer termination has a visible recoverable state')
         call('shell', 'hide', PLUGIN)
-        until(lambda s: not s['opened'] and not s['collectorRunning'])
-        all_states = json.loads(call('terrarium', 'allStates'))
-        assert not any(s['collectorRunning'] for s in all_states)
+        until_all_stopped()
         checks.append('all monitors stop collection when closed')
         call('shell', 'summon', PLUGIN, '{}')
-        until(lambda s: s['opened'] and s['collectorRunning'] and not s['stale'])
+        previous_samples = state()['samples']
+        until(lambda s: s['opened'] and s['collectorRunning'] and not s['stale'] and s['samples'] > previous_samples)
         checks.append('reopening restarts observation')
+        if stress:
+            # Immediate pairs exercise shutdown/start races without assuming
+            # a subprocess has exited by the time hide() returns.
+            for _ in range(12):
+                call('shell', 'hide', PLUGIN)
+                call('shell', 'summon', PLUGIN, '{}')
+            prior = state()['liveSamples']
+            until(lambda s: s['collectorRunning'] and not s['stale'] and s['liveSamples'] > prior)
+            for _ in range(8):
+                call('terrarium', 'retry')
+            prior = state()['liveSamples']
+            until(lambda s: s['collectorRunning'] and not s['stale'] and s['liveSamples'] > prior)
+            checks.append('rapid close/reopen and repeated retry recover')
+            call('terrarium', 'ambient')
+            call('shell', 'hide', PLUGIN)
+            until(lambda s: s['ambient'] and s['collectorRunning'])
+            states = json.loads(call('terrarium', 'allStates'))
+            assert sum(s['ambientVisible'] for s in states) == 1
+            assert len({s['collectorPid'] for s in states}) == 1
+            assert len({s['liveSamples'] for s in states}) == 1
+            assert all(s['watcherCount'] == 1 for s in states)
+            call('shell', 'summon', PLUGIN, '{}')
+            prior = state()['liveSamples']
+            until(lambda s: s['liveSamples'] > prior)
+            states = json.loads(call('terrarium', 'allStates'))
+            assert len({s['collectorPid'] for s in states}) == 1
+            assert len({s['liveSamples'] for s in states}) == 1
+            call('terrarium', 'ambient')
+            call('shell', 'hide', PLUGIN)
+            until_all_stopped()
+            checks.append('pinned mode shares one observer across all displays and stops cleanly')
         print(json.dumps({'passed': len(checks), 'checks': checks}, indent=2))
     finally:
         try:
@@ -95,4 +135,6 @@ def run(fault=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fault', action='store_true', help='also terminate the plugin-owned observer and verify recovery')
-    run(parser.parse_args().fault)
+    parser.add_argument('--stress', action='store_true', help='also exercise rapid lifecycle transitions and pinned mode')
+    args = parser.parse_args()
+    run(args.fault, args.stress)

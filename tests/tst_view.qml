@@ -7,6 +7,7 @@ TestCase {
     id:tests
     name:"TerrariumView"
     when:windowShown
+    visible:true
     width:1120;height:720
     property var subject
     Component {
@@ -41,11 +42,37 @@ TestCase {
         keyClick(Qt.Key_P);compare(motionSpy.count,1);
     }
     function test_resident_keyboard_inspection() {
+        keyClick(Qt.Key_Left);compare(subject.selectedKey,"files");
+        subject.selectedKey="";
         keyClick(Qt.Key_Right);compare(subject.selectedKey,"firefox");
         keyClick(Qt.Key_Right);compare(subject.selectedKey,"codex");
         keyClick(Qt.Key_Left);compare(subject.selectedKey,"firefox");
         keyClick(Qt.Key_Left);compare(subject.selectedKey,"files");
         compare(subject.selected.name,"Files");
+    }
+    function test_keyboard_scrolls_reading_sections() {
+        subject.width=720;subject.height=480;
+        keyClick(Qt.Key_H);
+        var guide=findChild(subject,"guideScroll");
+        verify(guide.contentHeight>guide.height);
+        keyClick(Qt.Key_PageDown);verify(guide.contentY>0);compare(subject.selectedKey,"");
+        keyClick(Qt.Key_End);compare(guide.contentY,guide.contentHeight-guide.height);
+        keyClick(Qt.Key_Home);compare(guide.contentY,0);
+        var notes=[];
+        for(var i=0;i<24;i++)notes.push({time:1700000000000+i*2000,text:"Synthetic application "+i+" took root."});
+        subject.garden={residents:[],notes:notes,samples:1};
+        keyClick(Qt.Key_J);wait(100);
+        var journal=findChild(subject,"journalScroll");
+        keyClick(Qt.Key_Down);verify(journal.contentY>0);
+        keyClick(Qt.Key_Home);compare(journal.contentY,0);
+    }
+    function test_tab_control_activation() {
+        keyClick(Qt.Key_Tab);
+        var focused=subject.Window.window.activeFocusItem;
+        verify(focused!==null && focused!==subject,"Tab focus: "+focused+", view visible: "+subject.visible);
+        keyClick(Qt.Key_Tab);
+        keyClick(Qt.Key_Return);
+        compare(subject.section,"journal");
     }
     function test_empty_state_and_error_state() {
         subject.snapshot=Model.emptySnapshot();subject.garden=Model.newGarden();
@@ -57,6 +84,7 @@ TestCase {
         subject.width=720;subject.height=620;
         verify(subject.compact);
         ["dusk","dawn","moss","auto"].forEach(function(p){subject.paletteName=p;wait(100);verify(subject.colors.ink.length>0);});
-        subject.width=1120;verify(!subject.compact);
+        subject.width=1120;subject.height=720;verify(!subject.compact);
+        subject.height=480;verify(subject.compact);
     }
 }
