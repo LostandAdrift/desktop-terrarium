@@ -49,6 +49,25 @@ function slotsFor(residents) {
 function targetEnergy(resident) { return clamp(finite(resident ? resident.cpu : 0, 0) / 100, 0, 1); }
 function growth(resident) { return clamp(finite(resident ? resident.growth : 0, .35), 0, 1); }
 
+// Fixed positions have fixed planting roles. An arrival never shrinks or moves
+// its neighbours, and a foreground tree remains recognizably a tree.
+function stature(category, slot) {
+    var index=Number.isInteger(slot)?clamp(slot,0,6):0;
+    if(category==="browser")return {
+        x:[1.08,1.02,.72,.64,.64,.55,.45][index],
+        y:[1.08,1.06,.86,.70,.70,.72,.75][index]
+    };
+    if(category==="editor" || category==="terminal")return {
+        x:[1.08,1.08,.94,.88,.88,.84,.62][index],
+        y:[1.08,1.08,1,.88,.88,.88,.72][index]
+    };
+    return {x:[1.08,1.08,1,1,1,.9,.76][index],y:[1.08,1.08,1,1,1,.94,.90][index]};
+}
+function maturity(value) {
+    var g=clamp(finite(value,.35),0,1);
+    return g<.62?0:g<.82?1:g<.95?2:3;
+}
+
 function pose(category, key, phase, energy, impulse) {
     var shapes = {
         browser:[.72, .63, .6, .002], editor:[1.75, .93, .9, .003],

@@ -10,6 +10,8 @@ TestCase {
     visible:true
     width:900; height:550
     property var subject
+    property int underlyingClicks:0
+    MouseArea { anchors.fill:parent; z:-1; onClicked:tests.underlyingClicks++ }
     Component {
         id:sceneComponent
         GardenScene {
@@ -33,6 +35,7 @@ TestCase {
         var plant=findChild(subject,"plant-firefox");
         var untouched=findChild(subject,"plant-neovim");
         var start=plant.energy, other=untouched.energy;
+        var form=plant.form,stature=plant.stature;
         var paints=subject.botanicalPaintCount();
         subject.animate=true;
         for(var i=0;i<5;i++) {
@@ -40,6 +43,7 @@ TestCase {
             wait(60);
         }
         compare(findChild(subject,"plant-firefox"),plant);
+        verify(plant.form===form && plant.stature===stature,"Telemetry replacements retain the cached geometry and planting role");
         compare(subject.botanicalPaintCount(),paints);
         verify(plant.energy>start && plant.energy<.9);
         fuzzyCompare(untouched.energy,other,.00001);
@@ -56,21 +60,21 @@ TestCase {
         fuzzyCompare(rootPosition.x,Model.positions[0].x,.001);
         fuzzyCompare(rootPosition.y,Model.positions[0].y,.001);
     }
-    function test_growth_and_absence_transform_the_whole_cached_plant() {
+    function test_growth_within_a_stage_and_absence_transform_the_cached_plant() {
         var plant=findChild(subject,"plant-firefox");
         var paints=plant.paintCount, initial=plant.shownGrowth;
         subject.animate=true;
-        var next=copiedResidents(); next[0].growth=1; next[0].missing=4; subject.residents=next;
+        var next=copiedResidents(); next[0].growth=.55; next[0].missing=4; subject.residents=next;
         wait(450);
-        verify(plant.shownGrowth>initial && plant.shownGrowth<1);
+        verify(plant.shownGrowth>initial && plant.shownGrowth<.55);
         verify(plant.shownOpacity<1 && plant.shownOpacity>.45);
         compare(plant.paintCount,paints);
         subject.animate=false;
-        compare(plant.shownGrowth,1); compare(plant.shownOpacity,.45);
+        compare(plant.shownGrowth,.55); compare(plant.shownOpacity,.45);
     }
     function test_pointer_interaction_is_bounded_and_settles() {
         subject.animate=true;
-        mouseClick(subject,305,200);
+        mouseClick(subject,305,342);
         compare(selected.count,1); compare(selected.signalArguments[0][0],"firefox");
         mouseClick(subject,620,425);
         compare(subject.touches[subject.touches.length-1].kind,"pond");
@@ -94,8 +98,10 @@ TestCase {
     }
     function test_disabled_scene_does_not_intercept_or_accept_interaction() {
         subject.animate=true; subject.selectedKey="firefox"; subject.enabled=false;
+        var clicks=underlyingClicks;
         mouseClick(subject,305,200);
         compare(selected.count,0);
+        compare(underlyingClicks,clicks+1,"The actual pointer event must reach the surface behind the pin");
         verify(!subject.interactSelected()); verify(!subject.touchAt(620,425,""));
         compare(subject.transientCount,0);
         verify(subject.animationRunning,"The click-through ambient scene may still animate");
@@ -151,8 +157,70 @@ TestCase {
         compare(plant.textureScale,2);
         subject.rasterScale=1; compare(subject.artReady,false);
         tryCompare(subject,"artReady",true,2500);
-        // Growth and CPU use the existing texture and do not invalidate it.
-        next=copiedResidents(); next[0].growth=.99; next[0].cpu=70; subject.residents=next;
+        // Growth within a botanical stage and CPU keep the existing texture.
+        next=copiedResidents(); next[0].growth=.55; next[0].cpu=70; subject.residents=next;
         compare(subject.artReady,true);
+    }
+    function homogeneous(category,growth) {
+        var result=[];
+        for(var i=0;i<7;i++)result.push({key:"specimen-"+i,name:"Specimen "+i,category:category,slot:i,cpu:25,growth:growth,missing:0});
+        return result;
+    }
+    function test_all_roots_remain_reachable_and_clear_water_does_not_select_plants() {
+        var categories=["browser","editor","terminal","agent","media","system","other"];
+        for(var compact=0;compact<2;compact++) {
+            subject.width=compact?560:900;subject.height=compact?360:550;subject.fitVessel=compact===1;
+            var plate=findChild(subject,"scenePlate");
+            for(var c=0;c<categories.length;c++) {
+                subject.residents=homogeneous(categories[c],1);
+                tryCompare(subject,"artReady",true,2500);
+                for(var i=0;i<7;i++) {
+                    mouseMove(tests,5,5);selected.clear();
+                    var point=plate.mapToItem(subject,Model.positions[i].x,Model.positions[i].y);
+                    mouseClick(subject,point.x,point.y);
+                    compare(selected.count,1,categories[c]+" root "+i);
+                    compare(selected.signalArguments[0][0],"specimen-"+i);
+                }
+                mouseMove(tests,5,5);selected.clear();
+                point=plate.mapToItem(subject,615,416);mouseClick(subject,point.x,point.y);
+                compare(selected.count,0,categories[c]+" exposed water");
+                compare(subject.staticTouch.kind,"pond");
+                compare(subject.staticTouch.key,"");
+                point=plate.mapToItem(subject,491,395);mouseClick(subject,point.x,point.y);
+                compare(selected.count,0,categories[c]+" exposed bridge");
+            }
+        }
+    }
+    function test_painted_foliage_and_hover_use_the_transformed_botanical_shape() {
+        subject.residents=homogeneous("browser",1);
+        tryCompare(subject,"artReady",true,2500);
+        // This point is in the left back canopy, well away from its root.
+        mouseMove(subject,330,185);wait(20);
+        verify(findChild(subject,"plant-label-specimen-0").visible);
+        mouseClick(subject,330,185);
+        compare(selected.count,1);compare(selected.signalArguments[0][0],"specimen-0");
+        mouseMove(subject,615,416);wait(20);
+        verify(!findChild(subject,"plant-label-specimen-0").visible);
+        compare(subject.pointerKey,"");
+    }
+    function test_maturity_adds_cached_structure_only_at_three_stage_boundaries() {
+        var plant=findChild(subject,"plant-firefox"),textures=subject.residentTextureCount;
+        var previous=grabImage(subject),paintCount=plant.paintCount;
+        var stages=[.65,.85,.98];
+        for(var i=0;i<stages.length;i++) {
+            var next=copiedResidents();next[0].growth=stages[i];subject.residents=next;
+            compare(subject.artReady,false);tryCompare(subject,"artReady",true,2500);
+            compare(findChild(subject,"plant-firefox"),plant);
+            compare(plant.paintCount,++paintCount);
+            var current=grabImage(subject);verify(!current.equals(previous));previous=current;
+            compare(subject.residentTextureCount,textures);
+        }
+        subject.animate=true;
+        for(i=0;i<10;i++) {
+            next=copiedResidents();next[0].cpu=20+i*5;next[0].growth=.98+i*.001;
+            subject.residents=next;wait(55);
+        }
+        compare(plant.paintCount,paintCount);
+        verify(subject.animationRunning);
     }
 }

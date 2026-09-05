@@ -4,6 +4,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const dynamics = vm.createContext({});
 vm.runInContext(fs.readFileSync(`${__dirname}/../SceneDynamics.js`, 'utf8').replace(/^\.pragma library\s*/, ''), dynamics);
+const painter = vm.createContext({});
+vm.runInContext(fs.readFileSync(`${__dirname}/../ScenePainter.js`, 'utf8').replace(/^\.pragma library\s*/, ''), painter);
+const model = vm.createContext({});
+vm.runInContext(fs.readFileSync(`${__dirname}/../Model.js`, 'utf8').replace(/^\.pragma library\s*/, ''), model);
 const plain = value => JSON.parse(JSON.stringify(value));
 
 test('the local sky is continuous around sunrise, sunset, and midnight', () => {
@@ -156,4 +160,59 @@ test('the renderer bounds slots and preserves their identity independently of ra
     assert.equal(dynamics.inPond(305,342), false);
     assert.equal(dynamics.inGlass(450,480), false);
     assert.equal(dynamics.inGlass(150,60), false);
+});
+
+test('observed growth has four bounded botanical stages and adds structure over hours', () => {
+    const growthAt = model.growthForAge;
+    const categories=['browser','editor','terminal','agent','media','system','other'];
+    assert.equal(dynamics.maturity(growthAt(0)),0);
+    assert.equal(dynamics.maturity(growthAt(3600)),1);
+    assert.equal(dynamics.maturity(growthAt(21600)),3);
+    const seen=new Set();let previous=-1,transitions=0;
+    for(let second=0;second<=21600;second+=2) {
+        const stage=dynamics.maturity(growthAt(second));
+        assert.ok(stage>=previous && stage<=3);
+        if(previous>=0 && stage!==previous)transitions++;
+        seen.add(stage);previous=stage;
+    }
+    assert.equal(seen.size,4);assert.equal(transitions,3);
+    assert.equal(dynamics.maturity(NaN),0);
+    assert.equal(dynamics.maturity(-1),0);assert.equal(dynamics.maturity(10),3);
+    for(const category of categories) {
+        const forms=[0,1,2,3].map(stage=>painter.plantForm('stable-resident',category,stage));
+        const count=form=>form.leaves.length+form.crowns.length+form.blooms.length+form.specks.length;
+        for(let stage=1;stage<4;stage++)assert.ok(count(forms[stage])>count(forms[stage-1]),category);
+        // Input ordering, process names and instantaneous readings are absent
+        // from this API; the same resident always reconstructs the same form.
+        assert.deepEqual(plain(forms[3]),plain(painter.plantForm('stable-resident',category,3)));
+        assert.notDeepEqual(plain(forms[3]),plain(painter.plantForm('another-resident',category,3)));
+    }
+});
+
+test('botanical hit shapes reach painted structures and leave empty texture corners open', () => {
+    const categories=['browser','editor','terminal','agent','media','system','other'];
+    for(const category of categories)for(let stage=0;stage<4;stage++)for(let seed=0;seed<20;seed++) {
+        const form=painter.plantForm('shape-'+seed,category,stage);
+        for(const crown of form.crowns)assert.ok(painter.containsPlant(form,crown.x,crown.y,0));
+        for(const bloom of form.blooms)assert.ok(painter.containsPlant(form,bloom.x,bloom.y,0));
+        for(const leaf of form.leaves) {
+            const center=painter.rotated(0,-leaf.size*.5,leaf.angle);
+            assert.ok(painter.containsPlant(form,leaf.x+center.x,leaf.y+center.y,0));
+        }
+        for(const corner of [[-120,-230],[120,-230],[-120,-5],[120,-5]])
+            assert.equal(painter.containsPlant(form,...corner,2.5),false);
+        assert.ok(form.segments.length<70);
+        assert.ok(form.leaves.length<=98);
+    }
+});
+
+test('fixed planting roles keep foreground canopies narrower without flattening their trunks', () => {
+    const rear=dynamics.stature('browser',0),middle=dynamics.stature('browser',2),front=dynamics.stature('browser',6);
+    assert.ok(front.x<middle.x && middle.x<rear.x);
+    assert.ok(front.y>front.x,'The small crown stays above the pond on its slender trunk');
+    for(const category of ['browser','editor','terminal','agent','media','system','other'])
+        for(const slot of [-1,0,1,2,3,4,5,6,99,NaN]) {
+            const size=dynamics.stature(category,slot);
+            assert.ok(size.x>=.4 && size.x<=1.08 && size.y>=.65 && size.y<=1.08);
+        }
 });

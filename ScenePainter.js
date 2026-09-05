@@ -156,22 +156,173 @@ function paintGround(c,p,water,sky,rasterScale) {
     c.restore();
 }
 
-function paintPlant(c,p,resident,opening,rasterScale) {
+function paintPlant(c,p,resident,opening,rasterScale,form) {
     beginCanvas(c,256,260,rasterScale);
     if(!resident)return;
-    var seed=rng(hash(resident.key));
-    if(resident.category==="browser")tree(c,128,244,1,p,seed);
-    else if(resident.category==="agent")lantern(c,128,244,1,p,seed,opening);
-    else if(resident.category==="editor" || resident.category==="terminal")fern(c,128,244,1,p,seed);
-    else if(resident.category==="media")bells(c,128,244,1,p,seed,opening);
-    else if(resident.category==="system")mushrooms(c,128,244,1,p,seed);
-    else sprout(c,128,244,1,p,seed);
+    form=form||plantForm(resident.key,resident.category,3);
+    c.save();c.translate(128,244);
+    form.stems.forEach(function(stem) {
+        var a=stem.points;c.beginPath();c.moveTo(a[0],a[1]);
+        if(a.length===8)c.bezierCurveTo(a[2],a[3],a[4],a[5],a[6],a[7]);
+        else if(a.length===6)c.quadraticCurveTo(a[2],a[3],a[4],a[5]);
+        else c.lineTo(a[2],a[3]);
+        c.strokeStyle=stem.role==="trunk"?"#a8936c":p[stem.role];c.lineWidth=stem.width;c.stroke();
+    });
+    form.leaves.forEach(function(l){leaf(c,l.x,l.y,l.size,l.angle,p[l.role]);});
+    form.crowns.forEach(function(b) {
+        ellipse(c,b.x,b.y,b.rx,b.ry,p[b.role]);
+        c.globalAlpha=.2;leaf(c,b.x+4,b.y+4,18,-.5,p.leafLight);c.globalAlpha=1;
+    });
+    form.specks.forEach(function(b){ellipse(c,b.x,b.y,1.3,1.3,p.gold);});
+    form.blooms.forEach(function(b) {
+        var x=b.x,y=b.y;
+        if(form.category==="agent") {
+            var gl=c.createRadialGradient(x,y,0,x,y,23);gl.addColorStop(0,p.gold);gl.addColorStop(1,"transparent");
+            c.globalAlpha=.15;c.fillStyle=gl;c.fillRect(x-25,y-25,50,50);c.globalAlpha=1;
+            var spread=.7+(1-opening)*.3;
+            path(c,[[x,y-12],[x+10*spread,y-3],[x+7*spread,y+10],[x,y+14],[x-7*spread,y+10],[x-10*spread,y-3]],p.flower);
+            stroke(c,x,y-10,x,y+10,p.gold,1);ellipse(c,x,y+1,3,4,"#f4dca5");
+        } else if(form.category==="media") {
+            spread=.65+.35*opening;
+            c.beginPath();c.moveTo(x-7*spread,y+5);c.bezierCurveTo(x-6*spread,y-15,x+6*spread,y-15,x+8*spread,y+5);c.quadraticCurveTo(x,y+1,x-7*spread,y+5);
+            c.fillStyle=p[b.role];c.fill();ellipse(c,x,y+4,7*spread,2,p.gold);
+        } else if(form.category==="system") {
+            var rr=b.radius;
+            c.beginPath();c.moveTo(x-rr,y);c.bezierCurveTo(x-rr,y-rr*1.7,x+rr,y-rr*1.7,x+rr,y);c.quadraticCurveTo(x,y+5,x-rr,y);
+            c.fillStyle=p[b.role];c.fill();ellipse(c,x-3,y-7,1.5,1.1,p.ink);ellipse(c,x+4,y-4,1,1,p.ink);
+        } else ellipse(c,x,y,3,3,p.flower);
+    });
+    c.restore();
 }
 
-function lanternTips(key) {
-    var r=rng(hash(key)),tips=[];
-    for(var i=0;i<4;i++)tips.push({x:128+(i-1.5)*22,y:244-76-r()*52});
-    return tips;
+// A form is generated only when identity/category/maturity changes. The painter
+// and pointer resolver share it, so empty Canvas pixels never become buttons.
+function plantForm(key,category,maturity) {
+    var r=rng(hash(String(key))),stage=Math.max(0,Math.min(3,Math.floor(maturity)||0));
+    var f={category:category,stems:[],leaves:[],crowns:[],specks:[],blooms:[],segments:[]};
+    var i,j,x,y,h,dx,angle,order,count,allowed={};
+    if(category==="browser") {
+        var height=[.82,.9,.96,1][stage],spread=[.72,.84,.94,1][stage];
+        addStem(f,[-4,0,4,-45*height,-8,-106*height,6,-157*height],5,"trunk");
+        count=[4,7,10,12][stage];
+        for(i=0;i<12;i++) {
+            angle=i*2.399;var rad=28+Math.sqrt(r())*45;
+            x=Math.cos(angle)*rad*spread;y=(-139+Math.sin(angle)*rad*.64)*height;
+            var rx=20+r()*14,ry=16+r()*13;
+            if(i>=count)continue;
+            addStem(f,[1,-100*height,x,y],1.1,"rock");
+            f.crowns.push({x:x,y:y,rx:rx*(.78+stage*.0733),ry:ry*(.78+stage*.0733),role:i%3===0?"leafLight":i%3===1?"leaf":"leafDark"});
+        }
+        for(i=0;i<30;i++) {
+            angle=r()*Math.PI*2;rad=r()*59;
+            if(stage>=2 && i<(stage===2?12:30))f.specks.push({x:Math.cos(angle)*rad*spread,y:(-141+Math.sin(angle)*rad*.6)*height});
+        }
+        addStem(f,[-2,-1,-18,4],2,"rock");addStem(f,[0,0,17,3],2,"rock");
+    } else if(category==="editor" || category==="terminal") {
+        order=[3,2,4,1,5,0,6];count=[3,5,6,7][stage];
+        for(i=0;i<count;i++)allowed[order[i]]=true;
+        for(i=0;i<7;i++) {
+            angle=-1.1+i*.34;var length=55+r()*42;
+            if(!allowed[i])continue;
+            var cp=rotated(14,-length*.55,angle),tip=rotated(0,-length,angle);
+            addStem(f,[0,0,cp.x,cp.y,tip.x,tip.y],1.1,"gold");
+            for(j=1;j<8;j++) {
+                var fraction=j/8,yy=-fraction*length,xx=Math.sin(fraction*Math.PI)*6,sz=(1-fraction)*18+4;
+                var a=rotated(xx,yy,angle),b=rotated(xx,yy-3,angle);
+                f.leaves.push({x:a.x,y:a.y,size:sz,angle:angle-1,role:i%2?"leaf":"leafLight"});
+                f.leaves.push({x:b.x,y:b.y,size:sz,angle:angle+.95,role:i%2?"leafLight":"leaf"});
+            }
+        }
+    } else if(category==="agent") {
+        order=[1,2,0,3];count=[2,3,4,4][stage];for(i=0;i<count;i++)allowed[order[i]]=true;
+        for(i=0;i<4;i++) {
+            dx=(i-1.5)*22;h=76+r()*52;if(!allowed[i])continue;
+            addStem(f,[0,0,dx*1.4,-h*.35,dx-9,-h,dx,-h],2,"leaf");
+            f.leaves.push({x:dx*.6,y:-h*.35,size:26,angle:dx<0?-1:1,role:"leafLight"});
+            if(stage===3)f.leaves.push({x:dx*.3,y:-h*.18,size:13,angle:dx<0?.75:-.75,role:"leaf"});
+            f.blooms.push({x:dx,y:-h});
+        }
+    } else {
+        order=[2,1,3,0,4];count=[2,3,4,5][stage];for(i=0;i<count;i++)allowed[order[i]]=true;
+        for(i=0;i<5;i++) {
+            if(category==="system") {
+                dx=(i-2)*13;h=13+r()*28;var radius=8+r()*10;
+                if(!allowed[i])continue;
+                addStem(f,[dx,0,dx-2,-h],3,"leafLight");
+                f.blooms.push({x:dx,y:-h,radius:radius,role:i%2?"flower":"gold"});
+            } else if(category==="media") {
+                dx=(i-2)*14;h=49+r()*47;if(!allowed[i])continue;
+                addStem(f,[0,0,dx,-h],1.5,"leaf");
+                f.leaves.push({x:dx*.6,y:-h*.45,size:23,angle:dx<0?-.8:.8,role:"leaf"});
+                f.blooms.push({x:dx,y:-h,role:i%2?"flower":"leafLight"});
+            } else {
+                h=34+r()*39;dx=(i-2)*14;if(!allowed[i])continue;
+                addStem(f,[0,0,dx,-h],1.5,"leaf");
+                for(j=0;j<3;j++) {
+                    fraction=.3+j*.23;
+                    f.leaves.push({x:dx*fraction,y:-h*fraction,size:20-j*3,angle:j%2?-.9:.9,role:i%2?"leaf":"leafLight"});
+                }
+                f.blooms.push({x:dx,y:-h});
+            }
+        }
+    }
+    cacheHitGeometry(f);
+    return f;
+}
+function rotated(x,y,angle) {return {x:x*Math.cos(angle)-y*Math.sin(angle),y:x*Math.sin(angle)+y*Math.cos(angle)};}
+function addStem(form,points,width,role) {
+    form.stems.push({points:points,width:width,role:role});
+    var previous={x:points[0],y:points[1]},steps=points.length===4?1:8;
+    for(var i=1;i<=steps;i++) {
+        var t=i/steps,u=1-t,next;
+        if(points.length===8)next={x:u*u*u*points[0]+3*u*u*t*points[2]+3*u*t*t*points[4]+t*t*t*points[6],y:u*u*u*points[1]+3*u*u*t*points[3]+3*u*t*t*points[5]+t*t*t*points[7]};
+        else if(points.length===6)next={x:u*u*points[0]+2*u*t*points[2]+t*t*points[4],y:u*u*points[1]+2*u*t*points[3]+t*t*points[5]};
+        else next={x:points[2],y:points[3]};
+        form.segments.push({x1:previous.x,y1:previous.y,x2:next.x,y2:next.y,radius:width/2});previous=next;
+    }
+}
+function cacheHitGeometry(form) {
+    var shapes=[],i,b;
+    for(i=0;i<form.crowns.length;i++) {b=form.crowns[i];shapes.push({x:b.x,y:b.y,rx:b.rx,ry:b.ry,cos:1,sin:0});}
+    for(i=0;i<form.leaves.length;i++) {
+        b=form.leaves[i];var center=rotated(0,-b.size*.5,b.angle);
+        shapes.push({x:b.x+center.x,y:b.y+center.y,rx:b.size*.35,ry:b.size*.52,cos:Math.cos(b.angle),sin:Math.sin(b.angle)});
+    }
+    for(i=0;i<form.blooms.length;i++) {
+        b=form.blooms[i];
+        var rx=form.category==="agent"?10:form.category==="media"?8:form.category==="system"?b.radius:3;
+        var ry=form.category==="agent"?15:form.category==="media"?10:form.category==="system"?b.radius*.8:3;
+        var cy=b.y-(form.category==="system"?b.radius*.48:form.category==="media"?3:0);
+        shapes.push({x:b.x,y:cy,rx:rx,ry:ry,cos:1,sin:0});
+    }
+    var bounds={left:0,right:0,top:0,bottom:0};
+    shapes.forEach(function(shape) {
+        var ex=Math.abs(shape.rx*shape.cos)+Math.abs(shape.ry*shape.sin);
+        var ey=Math.abs(shape.rx*shape.sin)+Math.abs(shape.ry*shape.cos);
+        bounds.left=Math.min(bounds.left,shape.x-ex);bounds.right=Math.max(bounds.right,shape.x+ex);
+        bounds.top=Math.min(bounds.top,shape.y-ey);bounds.bottom=Math.max(bounds.bottom,shape.y+ey);
+    });
+    form.segments.forEach(function(line) {
+        bounds.left=Math.min(bounds.left,line.x1-line.radius,line.x2-line.radius);bounds.right=Math.max(bounds.right,line.x1+line.radius,line.x2+line.radius);
+        bounds.top=Math.min(bounds.top,line.y1-line.radius,line.y2-line.radius);bounds.bottom=Math.max(bounds.bottom,line.y1+line.radius,line.y2+line.radius);
+    });
+    form.hitEllipses=shapes;form.hitBounds=bounds;
+}
+function containsPlant(form,x,y,padding) {
+    var pad=Math.max(0,Math.min(5,padding||0)),i,b,bounds=form.hitBounds;
+    if(x<bounds.left-pad || x>bounds.right+pad || y<bounds.top-pad || y>bounds.bottom+pad)return false;
+    for(i=0;i<form.hitEllipses.length;i++) {
+        b=form.hitEllipses[i];var dx=x-b.x,dy=y-b.y;
+        var xx=(dx*b.cos+dy*b.sin)/(b.rx+pad),yy=(-dx*b.sin+dy*b.cos)/(b.ry+pad);
+        if(xx*xx+yy*yy<=1)return true;
+    }
+    for(i=0;i<form.segments.length;i++) {
+        b=form.segments[i];dx=b.x2-b.x1;dy=b.y2-b.y1;
+        var t=Math.max(0,Math.min(1,((x-b.x1)*dx+(y-b.y1)*dy)/(dx*dx+dy*dy||1)));
+        dx=x-b.x1-t*dx;dy=y-b.y1-t*dy;
+        if(dx*dx+dy*dy<=Math.pow(b.radius+pad,2))return true;
+    }
+    return false;
 }
 
 function paintBridge(c,p,rasterScale) {
@@ -198,19 +349,6 @@ function paintGlass(c,p,rasterScale) {
     c.font="8px sans-serif";c.fillStyle=p.gold;c.textAlign="center";c.fillText("T E R R A R I U M",450,500);
 }
 
-function tree(c,x,y,s,p,r) {
-    c.save();c.translate(x,y);c.scale(s,s);
-    c.beginPath();c.moveTo(-4,0);c.bezierCurveTo(4,-45,-8,-106,6,-157);c.strokeStyle="#a8936c";c.lineWidth=5;c.stroke();
-    for(var i=0;i<12;i++) {
-        var angle=i*2.399, rad=28+Math.sqrt(r())*45;
-        var lx=Math.cos(angle)*rad,ly=-139+Math.sin(angle)*rad*.64;
-        stroke(c,1,-100,lx,ly,p.rock,1.1);
-        ellipse(c,lx,ly,20+r()*14,16+r()*13,i%3===0?p.leafLight:i%3===1?p.leaf:p.leafDark);
-        c.globalAlpha=.2;leaf(c,lx+4,ly+4,18,-.5,p.leafLight);c.globalAlpha=1;
-    }
-    for(i=0;i<30;i++){var a=r()*Math.PI*2,rr=r()*59;ellipse(c,Math.cos(a)*rr,-141+Math.sin(a)*rr*.6,1.3,1.3,p.gold);}
-    stroke(c,-2,-1,-18,4,p.rock,2);stroke(c,0,0,17,3,p.rock,2);c.restore();
-}
 function fern(c,x,y,s,p,r) {
     c.save();c.translate(x,y);c.scale(s,s);
     for(var i=0;i<7;i++) {
@@ -222,29 +360,6 @@ function fern(c,x,y,s,p,r) {
         }c.restore();
     }c.restore();
 }
-function lantern(c,x,y,s,p,r,opening) {
-    c.save();c.translate(x,y);c.scale(s,s);
-    for(var i=0;i<4;i++) {
-        var dx=(i-1.5)*22,h=76+r()*52;
-        c.beginPath();c.moveTo(0,0);c.bezierCurveTo(dx*1.4,-h*.35,dx-9,-h,dx,-h);c.strokeStyle=p.leaf;c.lineWidth=2;c.stroke();
-        leaf(c,dx*.6,-h*.35,26,dx<0?-1:1,p.leafLight);
-        var gl=c.createRadialGradient(dx,-h,0,dx,-h,23);gl.addColorStop(0,p.gold);gl.addColorStop(1,"transparent");
-        c.globalAlpha=.15;c.fillStyle=gl;c.fillRect(dx-25,-h-25,50,50);c.globalAlpha=1;
-        var spread=opening===undefined?1:.7+(1-opening)*.3;
-        path(c,[[dx,-h-12],[dx+10*spread,-h-3],[dx+7*spread,-h+10],[dx,-h+14],[dx-7*spread,-h+10],[dx-10*spread,-h-3]],p.flower);
-        stroke(c,dx,-h-10,dx,-h+10,p.gold,1);ellipse(c,dx,-h+1,3,4,"#f4dca5");
-    }c.restore();
-}
-function bells(c,x,y,s,p,r,opening) {
-    c.save();c.translate(x,y);c.scale(s,s);
-    for(var i=0;i<5;i++) {
-        var dx=(i-2)*14,h=49+r()*47;stroke(c,0,0,dx,-h,p.leaf,1.5);
-        leaf(c,dx*.6,-h*.45,23,dx<0?-.8:.8,p.leaf);
-        var spread=opening===undefined?1:.65+.35*opening;
-        c.beginPath();c.moveTo(dx-7*spread,-h+5);c.bezierCurveTo(dx-6*spread,-h-15,dx+6*spread,-h-15,dx+8*spread,-h+5);c.quadraticCurveTo(dx,-h+1,dx-7*spread,-h+5);
-        c.fillStyle=i%2?p.flower:p.leafLight;c.fill();ellipse(c,dx,-h+4,7*spread,2,p.gold);
-    }c.restore();
-}
 function mushrooms(c,x,y,s,p,r) {
     c.save();c.translate(x,y);c.scale(s,s);
     for(var i=0;i<5;i++) {
@@ -253,13 +368,5 @@ function mushrooms(c,x,y,s,p,r) {
         c.beginPath();c.moveTo(dx-rr,-hh);c.bezierCurveTo(dx-rr,-hh-rr*1.7,dx+rr,-hh-rr*1.7,dx+rr,-hh);
         c.quadraticCurveTo(dx,-hh+5,dx-rr,-hh);c.fillStyle=i%2?p.flower:p.gold;c.fill();
         ellipse(c,dx-3,-hh-7,1.5,1.1,p.ink);ellipse(c,dx+4,-hh-4,1,1,p.ink);
-    }c.restore();
-}
-function sprout(c,x,y,s,p,r) {
-    c.save();c.translate(x,y);c.scale(s,s);
-    for(var i=0;i<5;i++) {
-        var h=34+r()*39,dx=(i-2)*14;stroke(c,0,0,dx,-h,p.leaf,1.5);
-        for(var j=0;j<3;j++){var f=.3+j*.23;leaf(c,dx*f,-h*f,20-j*3,j%2?-.9:.9,i%2?p.leaf:p.leafLight);}
-        ellipse(c,dx,-h,3,3,p.flower);
     }c.restore();
 }

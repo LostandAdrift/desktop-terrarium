@@ -23,6 +23,7 @@ Item {
     property var touches: []
     property var staticTouch: null
     property bool sceneReady: false
+    property string pointerKey: ""
     readonly property bool animationRunning: root.animate && root.visible
     readonly property int transientCount: touches.length
     readonly property var slots: Dynamics.slotsFor(residents)
@@ -48,14 +49,14 @@ Item {
     signal residentSelected(string key)
 
     clip: root.fitVessel
-    onVisibleChanged: if (visible) { ground.requestArt(); bridge.requestArt(); glass.requestArt(); }
+    onVisibleChanged: if (visible) { ground.requestArt(); bridge.requestArt(); glass.requestArt(); } else pointerKey=""
     onWeatherChanged: if (!animationRunning) settleWeather()
     onAnimationRunningChanged: {
         if (!animationRunning) { settleWeather(); touches=[]; }
         staticTouch=null;
     }
-    onEnabledChanged: if (!enabled) { touches=[]; staticTouch=null; }
-    onArtworkOnlyChanged: if (artworkOnly) { touches=[]; staticTouch=null; }
+    onEnabledChanged: if (!enabled) { touches=[]; staticTouch=null; pointerKey=""; }
+    onArtworkOnlyChanged: if (artworkOnly) { touches=[]; staticTouch=null; pointerKey=""; }
     Component.onCompleted: { settleWeather(); sceneReady=true; }
 
     function settleWeather() {
@@ -90,6 +91,28 @@ Item {
         }
         return false;
     }
+    function residentAt(x,y) {
+        if (!root.enabled || !root.visible || root.artworkOnly || !Dynamics.inGlass(x,y))return null;
+        // Basal targets have priority even where another canopy crosses them.
+        // Their minimum screen size remains useful in the compact garden.
+        var radius=Math.max(12,13/Math.max(.1,root.drawingScale));
+        var closest=null,distance=radius*radius;
+        for(var i=0;i<7;i++)if(root.slots[i]) {
+            var position=Model.positions[i],dx=x-position.x,dy=y-position.y;
+            var d=dx*dx+dy*dy;
+            if(d<=distance){closest=root.slots[i];distance=d;}
+        }
+        if(closest)return closest;
+        // The remaining hit regions follow the same cached botanical form as
+        // the painter. Clear spaces between leaves stay available to the glass.
+        for(i=6;i>=0;i--) {
+            var plant=plants.itemAt(i);
+            if(!plant || !plant.resident)continue;
+            var point=plant.mapFromItem(drawing,x,y);
+            if(plant.containsBotanical(point.x,point.y))return plant.resident;
+        }
+        return null;
+    }
 
     // One clock advances rendering state. Cached Canvases never follow phase.
     Timer {
@@ -118,11 +141,6 @@ Item {
             contentKey:root.groundKey
             paintContent:function(context){Painter.paintGround(context,root.colors,Math.round(root.water*10)/10,root.sky,root.textureScale);}
         }
-        MouseArea {
-            anchors.fill:parent; z:1
-            enabled:!root.artworkOnly
-            onClicked:function(mouse){root.touchAt(mouse.x,mouse.y,"");}
-        }
 
         // Fixed slots survive replacement telemetry arrays: no texture rebuilds,
         // lost interpolation, or lost keyboard focus on ordinary samples.
@@ -137,6 +155,7 @@ Item {
                 rasterScale:root.textureScale
                 enabled:!root.artworkOnly
                 ornaments:!root.artworkOnly
+                pointerHovered:resident!==null && root.pointerKey===resident.key
                 opening:root.sky.opening
                 phase:root.phase
                 moving:root.animationRunning
@@ -221,6 +240,19 @@ Item {
             id:glass; rasterScale:root.textureScale; z:1000
             contentKey:JSON.stringify(root.colors)
             paintContent:function(context){Painter.paintGlass(context,root.colors,root.textureScale);}
+        }
+        MouseArea {
+            anchors.fill:parent; z:1050
+            enabled:!root.artworkOnly
+            hoverEnabled:true
+            cursorShape:root.pointerKey!==""?Qt.PointingHandCursor:Qt.ArrowCursor
+            onPositionChanged:function(mouse){var resident=root.residentAt(mouse.x,mouse.y);root.pointerKey=resident?resident.key:"";}
+            onExited:root.pointerKey=""
+            onClicked:function(mouse) {
+                var resident=root.residentAt(mouse.x,mouse.y);
+                if(resident)root.residentSelected(resident.key);
+                root.touchAt(mouse.x,mouse.y,resident?resident.key:"");
+            }
         }
 
         // Names are hover/focus discovery hints, not permanent scene stickers.
