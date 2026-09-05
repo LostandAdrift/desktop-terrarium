@@ -1,1 +1,3 @@
 singleton Habitat 1.0 Habitat.qml
+ObserverLease 1.0 ObserverLease.qml
+PostcardWriter 1.0 PostcardWriter.qml

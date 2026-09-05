@@ -624,6 +624,7 @@ def empty_sample(timestamp: int, errors: list[str] | None = None) -> dict:
             "interfaces": [],
         },
         "processes": [],
+        "processesAvailable": False,
         "processCount": 0,
         "uptimeSeconds": 0,
         "errors": list(errors or []),
@@ -708,13 +709,15 @@ class Collector:
             rx, tx = None, None
             self._prev_net = None
         uptime = self._sample_uptime(errors)
-        processes, process_count, next_procs = self._sample_processes(
+        processes, process_count, next_procs, processes_available = self._sample_processes(
             errors, cpu_delta
         )
         ranked = rank_groups(processes, memory["totalBytes"])
 
         self._prev_mono = mono
-        self._prev_procs = next_procs
+        # Do not carry a partial process baseline into the next, complete
+        # machine interval. Recovery begins with unknown per-process rates.
+        self._prev_procs = next_procs if processes_available else None
 
         return {
             "version": VERSION,
@@ -728,6 +731,7 @@ class Collector:
                 "interfaces": net_names,
             },
             "processes": ranked,
+            "processesAvailable": processes_available,
             "processCount": process_count,
             "uptimeSeconds": uptime if uptime is not None else 0,
             "errors": errors,
@@ -790,71 +794,70 @@ class Collector:
 
     def _sample_processes(
         self, errors: list[str], machine_delta: int | None
-    ) -> tuple[list[dict], int, dict[tuple[int, int], int]]:
+    ) -> tuple[list[dict], int, dict[tuple[int, int], int], bool]:
         groups: dict[str, dict] = {}
         next_procs: dict[tuple[int, int], int] = {}
         count = 0
         scanned = 0
-        truncated = False
+        available = True
         try:
-            entries = os.scandir(self.proc_root)
+            with os.scandir(self.proc_root) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not name.isdigit():
+                        continue
+                    if len(name) > 1 and name.startswith("0"):
+                        continue
+                    scanned += 1
+                    if scanned > MAX_SCAN_PIDS:
+                        available = False
+                        add_error(errors, "process scan truncated")
+                        break
+                    try:
+                        pid = int(name)
+                    except ValueError:
+                        continue
+                    if pid == self.self_pid:
+                        continue
+                    rec = self._read_process(entry)
+                    if rec is None:
+                        continue
+                    ident = (rec["pid"], rec["starttime"])
+                    next_procs[ident] = rec["ticks"]
+                    cpu = None
+                    if (
+                        machine_delta is not None
+                        and machine_delta > 0
+                        and self._prev_procs is not None
+                        and ident in self._prev_procs
+                    ):
+                        dticks = rec["ticks"] - self._prev_procs[ident]
+                        if dticks >= 0:
+                            cpu = clamp(100.0 * dticks / machine_delta, 0.0, 100.0)
+                    count += 1
+                    key = _norm_key(rec["comm"])
+                    group = groups.get(key)
+                    if group is None:
+                        group = {
+                            "key": key,
+                            "name": sanitize_name(rec["comm"]),
+                            "count": 0,
+                            "cpu": None,
+                            "memoryBytes": 0,
+                            "category": categorize(rec["comm"]),
+                        }
+                        groups[key] = group
+                    group["count"] += 1
+                    group["memoryBytes"] += rec["rss_bytes"]
+                    if cpu is not None:
+                        group["cpu"] = (group["cpu"] or 0.0) + cpu
         except OSError:
+            # Enumeration can fail both on opening the directory and while
+            # advancing its iterator. Keep bounded partial readings, but do
+            # not let consumers mistake their omissions for departures.
+            available = False
             add_error(errors, "process scan incomplete")
-            return [], 0, {}
-
-        with entries:
-            for entry in entries:
-                name = entry.name
-                if not name.isdigit():
-                    continue
-                if len(name) > 1 and name.startswith("0"):
-                    continue
-                scanned += 1
-                if scanned > MAX_SCAN_PIDS:
-                    truncated = True
-                    break
-                try:
-                    pid = int(name)
-                except ValueError:
-                    continue
-                if pid == self.self_pid:
-                    continue
-                rec = self._read_process(entry)
-                if rec is None:
-                    continue
-                ident = (rec["pid"], rec["starttime"])
-                next_procs[ident] = rec["ticks"]
-                cpu = None
-                if (
-                    machine_delta is not None
-                    and machine_delta > 0
-                    and self._prev_procs is not None
-                    and ident in self._prev_procs
-                ):
-                    dticks = rec["ticks"] - self._prev_procs[ident]
-                    if dticks >= 0:
-                        cpu = clamp(100.0 * dticks / machine_delta, 0.0, 100.0)
-                count += 1
-                key = _norm_key(rec["comm"])
-                group = groups.get(key)
-                if group is None:
-                    group = {
-                        "key": key,
-                        "name": sanitize_name(rec["comm"]),
-                        "count": 0,
-                        "cpu": None,
-                        "memoryBytes": 0,
-                        "category": categorize(rec["comm"]),
-                    }
-                    groups[key] = group
-                group["count"] += 1
-                group["memoryBytes"] += rec["rss_bytes"]
-                if cpu is not None:
-                    group["cpu"] = (group["cpu"] or 0.0) + cpu
-
-        if truncated:
-            add_error(errors, "process scan truncated")
-        return list(groups.values()), count, next_procs
+        return list(groups.values()), count, next_procs, available
 
     def _read_process(self, entry: os.DirEntry) -> dict | None:
         pid_path = Path(entry.path)
@@ -1049,6 +1052,7 @@ def run_stream(collector: Collector, interval: float) -> int:
             except OSError as exc:
                 if getattr(exc, "errno", None) == errno.EPIPE:
                     return 0
+                collector._prev_procs = None
                 try:
                     emit_sample(
                         empty_sample(
@@ -1062,6 +1066,7 @@ def run_stream(collector: Collector, interval: float) -> int:
                     break
                 continue
             except Exception:
+                collector._prev_procs = None
                 try:
                     emit_sample(
                         empty_sample(int(collector._time()), ["sample failed"])

@@ -35,7 +35,8 @@ Every line is a single object with these fields, spelled exactly:
 | `network.txBytesPerSec` | Same for transmit. |
 | `network.interfaces` | Sorted kernel names of counted interfaces in this sample. |
 | `processes` | At most seven groups. See below. |
-| `processCount` | Count of every accessible same-user, non-zombie process, including groups that did not rank into `processes`. |
+| `processesAvailable` | Boolean: `true` only when process directory enumeration completed. `false` on enumeration failure, scan truncation, or a failed-sample fallback. An empty list with `true` is a completed observation; an empty list with `false` is unknown. |
+| `processCount` | Count of accessible same-user, non-zombie processes observed, including groups that did not rank into `processes`. Partial when `processesAvailable` is `false`. |
 | `uptimeSeconds` | First field of `/proc/uptime` (seconds). `0` if unreadable, with an error. |
 | `errors` | Short, non-sensitive English notes. Never paths, never PIDs, never command lines. |
 
@@ -49,6 +50,8 @@ A process group object:
 | `cpu` | Sum of members' CPU, same units as top-level `cpu` (percent of whole-machine capacity). `null` when no member has a valid delta. |
 | `memoryBytes` | Sum of resident set size (RSS) in bytes. |
 | `category` | One of `browser`, `editor`, `terminal`, `agent`, `media`, `system`, `other`. |
+
+`processesAvailable` is an additive field in version 1. Consumers should use it independently of the human-readable `errors` text. When it is `false`, the bounded `processes` list and `processCount` may contain partial readings for diagnosis; omissions must not advance absence timers, remove residents, or create departure notes. Healthy CPU, memory, and network readings remain usable. Those channels retain their existing `null` sentinels rather than sharing the process availability flag.
 
 ## Counters
 
@@ -71,6 +74,8 @@ proc% = 100 * Δ(utime + stime) / Δmachine_total
 ```
 
 That is a share of **entire machine capacity**, not of a single core. `100` would mean the group consumed every CPU. A new process, a PID reused with a different `starttime`, a tick decrease, or a missing machine delta yields `null` for that member rather than a spike.
+
+An unavailable process scan discards all prior process counters, including any partial new baseline. The first complete scan after recovery reports `null` process CPU and establishes a fresh baseline; a subsequent complete scan can report rates again. A failed stream sample also discards the process baseline so process ticks from multiple intervals cannot be divided by a single machine interval.
 
 ### Memory (`/proc/meminfo`)
 
@@ -122,6 +127,8 @@ Included when all of the following hold:
 - Transient `OSError` / permission / vanish: skip that PID, keep going.
 
 `processCount` is that filtered population, bounded by a scan cap (4096). Groups share a `key`. Ranking takes the top 7 by `2 * cpu + memoryPercent` (null CPU counts as 0), then `key` for ties. CPU is weighted more than memory so a busy small process outranks a large idle one, but a large idle process can still surface when CPU is quiet.
+
+Failure to open the process directory or advance its iterator marks `processesAvailable=false` with `process scan incomplete`. Hitting the scan cap before enumeration finishes marks it `false` with `process scan truncated`. Already collected groups remain bounded and available for diagnosis, and other system counters still emit. Normal per-PID races and unreadable individual records are skipped as above; they do not imply that directory enumeration failed. `processesAvailable=true` therefore means a complete enumeration of accessible records, not an atomic snapshot of every process on the machine.
 
 ## Privacy boundary
 

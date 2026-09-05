@@ -26,6 +26,11 @@ jobs:
           QT_QPA_PLATFORMTHEME: ""
           QT_STYLE_OVERRIDE: Fusion
           QT_QUICK_BACKEND: software
+          QT_FORCE_STDERR_LOGGING: "1"
         run: /usr/lib/qt6/bin/qmltestrunner -input tests -o -,txt
       - name: Test shared observer shutdown and recovery without windows
         run: bash scripts/check-store.sh
+      - name: Test lock, display, clock changes and rapid observer transitions
+        run: bash scripts/check-store.sh NativeLifecycle
+      - name: Test postcard helper ownership, cancellation and recovery
+        run: bash scripts/check-postcard.sh

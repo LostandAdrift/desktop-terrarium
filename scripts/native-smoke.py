@@ -39,7 +39,7 @@ def until_all_stopped(timeout=5):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         values = json.loads(call('terrarium', 'allStates'))
-        if values and not any(s['collectorRunning'] or s['opened'] for s in values):
+        if values and not any(s['collectorRunning'] or s['opened'] or s['clockRunning'] or s['animationRunning'] for s in values):
             return
         time.sleep(0.25)
     raise AssertionError('A monitor retained an observer after dismissal')
@@ -62,6 +62,14 @@ def run(fault=False, stress=False, stall=False):
         checks.append('demo is distinct and stops real collection')
         call('terrarium', 'section', 'guide')
         assert state()['section'] == 'guide'
+        call('terrarium', 'section', 'options')
+        options = state()
+        assert options['section'] == 'options' and options['clockRunning'] and not options['animationRunning']
+        call('terrarium', 'section', 'art')
+        art = state()
+        assert art['section'] == 'art' and art['clockRunning'] and not art['collectorRunning']
+        assert art['animationRunning'] == (not art['reducedMotion'])
+        checks.append('options suspend scene motion and art mode works while demo keeps local time without collection')
         call('terrarium', 'section', 'garden')
         call('terrarium', 'motion')
         assert state()['reducedMotion'] != original['reducedMotion']

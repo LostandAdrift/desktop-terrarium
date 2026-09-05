@@ -5,7 +5,7 @@ terrarium_output="${1:-/tmp/terrarium-previews}"
 mkdir -p -- "$terrarium_output"
 terrarium_output="$(realpath -- "$terrarium_output")"
 terrarium_qt_bin="${TERRARIUM_QT_BIN:-/usr/lib/qt6/bin}"
-export QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_STYLE_OVERRIDE=Fusion QT_QUICK_BACKEND=software
+export QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_STYLE_OVERRIDE=Fusion QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1
 "$terrarium_qt_bin/qml" tests/Render.qml -- --output "$terrarium_output/preview.png"
 "$terrarium_qt_bin/qml" tests/Render.qml -- --moss --output "$terrarium_output/moss.png"
 "$terrarium_qt_bin/qml" tests/Render.qml -- --dawn --output "$terrarium_output/dawn.png"

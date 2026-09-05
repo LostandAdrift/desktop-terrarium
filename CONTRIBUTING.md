@@ -16,16 +16,25 @@ The GitHub workflow runs those tests in a fresh Arch container. It cannot valida
 
 When Quickshell is installed, `bash scripts/check-store.sh` also tests the real observer lifecycle without opening any window. It copies the production store and collector into an isolated temporary configuration, pauses only that configuration's observer past the shutdown watchdog, then checks automatic recovery and final cleanup. It never controls the existing Omarchy shell.
 
+`bash scripts/check-store.sh NativeLifecycle` exercises the production observer leases with simulated lock and display inputs, rapid transitions, and forward/backward calendar changes. It does not lock your session or disconnect your monitors.
+
+`bash scripts/check-postcard.sh` checks the real postcard reservation helper and native writer with controlled capture callbacks, including cancellation, both subprocess signal orders, timeouts and preserving completed files. It opens no desktop window and writes only synthetic fixtures in its temporary test directory.
+
+For a longer resource check, run `python3 scripts/soak.py --seconds 1800 --output /tmp/terrarium-soak.json`. This runs the synthetic view and a separate read-only observer for thirty minutes, cycles animation and pause states, checks bounded residents and effects, and verifies both children stop. Its report contains aggregate CPU/RSS measurements and invariants; it does not retain process names, samples, or screenshots. The offscreen software renderer does not establish native compositor performance.
+
 ## Native integration
 
 After installing a development version, these commands temporarily open the plugin on your desktop:
 
 ```sh
 python3 scripts/native-smoke.py --fault --stress
+python3 scripts/native-placement.py
 python3 scripts/benchmark.py --seconds 15
 ```
 
-The fault test terminates only the plugin's own observer process and checks recovery. Both scripts restore the original preferences and close the popup if it began closed. Run them when you are comfortable with the popup opening.
+The fault test terminates only the plugin's own observer process and checks recovery. The placement check temporarily pins the garden in every corner and size on each connected display, checks the actual Hyprland layer geometry, and verifies that observation remains shared. These scripts restore the original preferences and close the popup if it began closed. Run them when you are comfortable with the popup opening.
+
+`python3 scripts/native-postcard.py` additionally uses `wtype` to exercise the actual preview and Save shortcuts with demonstration data. It creates two synthetic postcards in Pictures/Terrarium, checks their native PNG dimensions, removes only those test outputs, and restores the panel's preferences. Keep the desktop available for its keyboard interactions.
 
 Omarchy watches installed plugin files. Some changes to already-cached QML components can require `omarchy restart shell` during development. Never edit the packaged shell under `/usr/share/omarchy`.
 

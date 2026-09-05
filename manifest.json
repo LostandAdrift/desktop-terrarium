@@ -13,11 +13,14 @@
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",
-    "defaults": { "reducedMotion": false, "palette": "auto", "ambient": false },
+    "defaults": { "reducedMotion": false, "palette": "auto", "ambient": false, "ambientDisplay": "", "ambientCorner": "bottom-right", "ambientSize": "medium" },
     "schema": [
       { "key": "reducedMotion", "type": "boolean", "label": "Reduce motion" },
-      { "key": "ambient", "type": "boolean", "label": "Pin a garden behind windows on the first display" },
-      { "key": "palette", "type": "string", "label": "Palette: auto, dusk, dawn, moss" }
+      { "key": "ambient", "type": "boolean", "label": "Pin a garden behind windows" },
+      { "key": "ambientDisplay", "type": "string", "label": "Pinned display (blank for automatic)" },
+      { "key": "ambientCorner", "type": "enum", "label": "Pinned corner", "options": ["bottom-right", "bottom-left", "top-right", "top-left"], "defaultValue": "bottom-right" },
+      { "key": "ambientSize", "type": "enum", "label": "Pinned size", "options": ["small", "medium", "large"], "defaultValue": "medium" },
+      { "key": "palette", "type": "enum", "label": "Palette", "options": ["auto", "dusk", "dawn", "moss"], "defaultValue": "auto" }
     ]
   }
 }

@@ -5,6 +5,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Ui as Ui
 import "Model.js" as Model
+import "Placement.js" as Placement
 import "runtime" as Local
 
 Ui.Panel {
@@ -20,22 +21,51 @@ Ui.Panel {
     property var demoGarden:Model.newGarden()
     property int demoStep:0
     property bool demoMode:false
-    property bool storeReady:false
-    readonly property string watchKey:"panel-"+Date.now()+"-"+Math.random().toString(16).slice(2)
-    readonly property real now:Local.Habitat.now || Date.now()
+    readonly property real now:localClock.date.getTime()
     readonly property bool reducedMotion:setting("reducedMotion",false)===true
     readonly property bool ambientEnabled:setting("ambient",false)===true
-    readonly property bool ambientHost:button.QsWindow.window !== null && button.QsWindow.window.screen === Quickshell.screens[0]
-    readonly property bool observing:(opened && !demoMode) || (ambientEnabled && ambientHost)
+    readonly property string ambientDisplay:Placement.normalizeDisplay(setting("ambientDisplay",""))
+    readonly property string ambientCorner:Placement.normalizeCorner(setting("ambientCorner","bottom-right"))
+    readonly property string ambientSize:Placement.normalizeSize(setting("ambientSize","medium"))
+    readonly property var ambientTarget:Placement.chooseScreen(Quickshell.screens,ambientDisplay)
+    readonly property var ambientGeometry:Placement.geometry(ambientTarget.screen,ambientSize,ambientCorner)
+    readonly property var displayChoices:{
+        var choices=[];
+        for(var i=0;i<Quickshell.screens.length;i++){
+            var output=Quickshell.screens[i];
+            choices.push({name:output.name,label:output.name});
+        }
+        return choices;
+    }
+    readonly property bool hasScreen:{
+        var panelWindow=button.QsWindow.window;
+        if(panelWindow===null || panelWindow.screen===null)return false;
+        for(var i=0;i<Quickshell.screens.length;i++)if(Quickshell.screens[i]===panelWindow.screen)return true;
+        return false;
+    }
+    readonly property bool ambientHost:hasScreen && button.QsWindow.window.screen === Quickshell.screens[0]
+    readonly property var lockService:root.bar && root.bar.shell && typeof root.bar.shell.serviceFor==="function" ? root.bar.shell.serviceFor("omarchy.lock") : null
+    readonly property bool sessionLocked:lockService !== null && lockService.locked === true
+    readonly property bool observing:observation.observing
     readonly property string paletteName:String(setting("palette","auto"))
     readonly property bool stale:!demoMode && Local.Habitat.stale
     readonly property var displaySnapshot:demoMode?Model.demoSnapshot(demoStep):liveSnapshot
     readonly property var displayGarden:demoMode?demoGarden:liveGarden
 
-    function syncWatch() {if(storeReady)Local.Habitat.watch(watchKey,observing);}
-    onObservingChanged:syncWatch()
-    Component.onCompleted:{storeReady=true;syncWatch();}
-    Component.onDestruction:Local.Habitat.unwatch(watchKey)
+    Local.ObserverLease {
+        id:observation
+        opened:root.opened;demo:root.demoMode;ambient:root.ambientEnabled
+        host:root.ambientHost;locked:root.sessionLocked;hasScreen:root.hasScreen
+    }
+    Local.PostcardWriter { id:postcardWriter }
+    SystemClock {
+        id:localClock
+        precision:SystemClock.Minutes
+        enabled:root.hasScreen && !root.sessionLocked && (root.opened || (root.ambientEnabled && root.ambientHost))
+    }
+    onSessionLockedChanged:if(sessionLocked){postcardWriter.cancel();root.close();}
+    onHasScreenChanged:if(!hasScreen){postcardWriter.cancel();root.close();}
+    onOpenedChanged:if(!opened)postcardWriter.cancel()
 
     function instances() {
         return root.bar && typeof root.bar.moduleWidgets==="function" ? root.bar.moduleWidgets(root.moduleName) : [root];
@@ -51,9 +81,22 @@ Ui.Panel {
             watching:root.observing,liveSamples:root.liveGarden.samples,watcherCount:Object.keys(Local.Habitat.watches).length,
             ambientVisible:ambientWindow.visible,
             samples:root.displayGarden.samples,residents:root.displayGarden.residents.length,
-            reducedMotion:root.reducedMotion,palette:root.paletteName,section:view.section};
+            reducedMotion:root.reducedMotion,palette:root.paletteName,section:view.section,locked:root.sessionLocked,
+            clockRunning:localClock.enabled,animationRunning:view.sceneAnimating,
+            ambientDisplay:root.ambientDisplay,ambientCorner:root.ambientCorner,ambientSize:root.ambientSize,
+            ambientActualDisplay:root.ambientTarget.display,ambientFallback:root.ambientTarget.fallback,
+            ambientWidth:ambientWindow.width,ambientHeight:ambientWindow.height,
+            screenName:root.hasScreen?button.QsWindow.window.screen.name:"",
+            availableDisplays:root.displayChoices.map(function(output){return output.name;}),
+            exportBusy:postcardWriter.busy,exportStatus:postcardWriter.status,exportPath:postcardWriter.savedPath,
+            postcardReady:view.postcardReady};
     }
-    function showSection(name) {if(["garden","journal","guide"].indexOf(name)>=0)view.section=name;}
+    function showSection(name) {if(["garden","journal","guide","options","art"].indexOf(name)>=0)view.showSection(name);}
+    function place(key,value) {
+        if(key==="ambientDisplay")persist(key,Placement.normalizeDisplay(value));
+        else if(key==="ambientCorner")persist(key,Placement.normalizeCorner(value));
+        else if(key==="ambientSize")persist(key,Placement.normalizeSize(value));
+    }
     function persist(key,value) {
         var entry={id:root.moduleName};
         for(var k in root.settings) if(k!=="id") entry[k]=root.settings[k];
@@ -77,7 +120,7 @@ Ui.Panel {
     function retry() {Local.Habitat.retry();}
 
     Timer {
-        interval:2000;running:root.opened && root.demoMode;repeat:true
+        interval:2000;running:root.opened && root.hasScreen && root.demoMode && !root.sessionLocked;repeat:true
         onTriggered:{root.demoStep++;root.demoGarden=Model.updateGarden(root.demoGarden,Model.demoSnapshot(root.demoStep),Date.now());}
     }
 
@@ -112,9 +155,13 @@ Ui.Panel {
             id:view;anchors.fill:parent
             snapshot:root.displaySnapshot;garden:root.displayGarden
             paletteName:root.paletteName;reducedMotion:root.reducedMotion
-            active:root.opened;demo:root.demoMode;stale:root.stale
+            active:root.opened && root.hasScreen && !root.sessionLocked;demo:root.demoMode;stale:root.stale
             ambient:root.ambientEnabled
-            hour:new Date(root.now).getHours()
+            displays:root.displayChoices;ambientDisplay:root.ambientDisplay
+            ambientCorner:root.ambientCorner;ambientSize:root.ambientSize
+            postcardAvailable:true
+            exportBusy:postcardWriter.busy;exportStatus:postcardWriter.status;exportPath:postcardWriter.savedPath
+            hour:{var date=new Date(root.now);return date.getHours()+date.getMinutes()/60;}
             status:root.stale?(Local.Habitat.status || "Waiting for the local observer…"):Local.Habitat.status
             onCloseRequested:root.close()
             onDemoRequested:root.toggleDemo()
@@ -122,28 +169,41 @@ Ui.Panel {
             onPaletteRequested:root.cyclePalette()
             onRetryRequested:root.retry()
             onAmbientRequested:root.persist("ambient",!root.ambientEnabled)
+            onPlacementRequested:function(key,value){root.place(key,value);}
+            onPostcardRequested:{postcardWriter.status="";postcardWriter.savedPath="";}
+            onExportRequested:function(cardItem){postcardWriter.save(cardItem);}
+            onExportCancelRequested:postcardWriter.cancel()
         }
     }
     PanelWindow {
         id:ambientWindow
-        visible:root.ambientEnabled && root.ambientHost && !root.opened
-        screen:Quickshell.screens[0] || null
-        anchors { bottom:true;right:true }
-        margins { bottom:36;right:36 }
-        implicitWidth:Math.min(680,screen?screen.width*.4:680)
-        implicitHeight:implicitWidth*550/900
+        visible:root.ambientEnabled && root.ambientHost && root.ambientGeometry.visible && !root.opened && !root.sessionLocked
+        screen:root.ambientTarget.screen
+        anchors {
+            top:root.ambientGeometry.anchors.top;bottom:root.ambientGeometry.anchors.bottom
+            left:root.ambientGeometry.anchors.left;right:root.ambientGeometry.anchors.right
+        }
+        margins {
+            top:root.ambientGeometry.margins.top;bottom:root.ambientGeometry.margins.bottom
+            left:root.ambientGeometry.margins.left;right:root.ambientGeometry.margins.right
+        }
+        implicitWidth:root.ambientGeometry.width
+        implicitHeight:root.ambientGeometry.height
         color:"transparent"
-        exclusionMode:ExclusionMode.Ignore
+        exclusionMode:ExclusionMode.Normal
+        exclusiveZone:0
         WlrLayershell.layer:WlrLayer.Bottom
         WlrLayershell.namespace:"desktop-terrarium"
         WlrLayershell.keyboardFocus:WlrKeyboardFocus.None
         mask:Region {}
         GardenScene {
             anchors.fill:parent
-            palette:Model.palette(root.paletteName,new Date(root.now).getHours())
+            hour:{var date=new Date(root.now);return date.getHours()+date.getMinutes()/60;}
+            colors:Model.palette(root.paletteName,new Date(root.now).getHours())
             residents:root.liveGarden.residents;weather:Model.weather(root.liveSnapshot)
             animate:ambientWindow.visible && !root.reducedMotion && !Local.Habitat.stale
             enabled:false
+            artworkOnly:true
         }
     }
     // Introspection and ordinary actions for CLI/keyboard users and native
@@ -161,5 +221,6 @@ Ui.Panel {
         function ambient():void {root.persist("ambient",!root.ambientEnabled);}
         function retry():void {root.activeInstance().retry();}
         function section(name:string):void {root.activeInstance().showSection(name);}
+        function placement(key:string,value:string):void {root.place(key,value);}
     }
 }

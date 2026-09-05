@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import builtins
+from contextlib import contextmanager
 import importlib.util
 import io
 import json
@@ -234,6 +235,22 @@ class CollectorTests(unittest.TestCase):
         return first, second
 
 
+@contextmanager
+def interrupted_process_scan(root: Path):
+    """Let one real fixture PID through, then fail directory iteration."""
+    with os.scandir(root) as entries:
+        first = next(entry for entry in entries if entry.name.isdigit())
+
+    def interrupted():
+        yield first
+        raise OSError("synthetic private path must not reach telemetry")
+
+    scan = mock.MagicMock()
+    scan.__enter__.return_value = interrupted()
+    with mock.patch.object(collect.os, "scandir", return_value=scan):
+        yield
+
+
 class CpuTests(CollectorTests):
     def test_cpu_null_on_first_sample(self) -> None:
         sample = self.collector.sample()
@@ -337,6 +354,129 @@ class StatParseTests(unittest.TestCase):
 
 
 class ProcessLifecycleTests(CollectorTests):
+    def test_complete_empty_process_scan_is_available(self) -> None:
+        sample = self.collector.sample()
+        self.assertIs(sample["processesAvailable"], True)
+        self.assertEqual(sample["processes"], [])
+        self.assertEqual(sample["processCount"], 0)
+        self.assertEqual(sample["errors"], [])
+
+    def test_failed_process_scan_is_unavailable_without_losing_other_channels(self) -> None:
+        self.collector.sample()
+        self.fs.set_cpu(150, 0, 50, 900)
+        self.fs.set_net({"eth0": (5000, 2600)})
+        self.clock.advance(2)
+        with mock.patch.object(collect.os, "scandir", side_effect=PermissionError("private fixture path")):
+            sample = self.collector.sample()
+        self.assertIs(sample["processesAvailable"], False)
+        self.assertEqual(sample["processes"], [])
+        self.assertEqual(sample["processCount"], 0)
+        self.assertEqual(sample["errors"], ["process scan incomplete"])
+        self.assertEqual(sample["cpu"], 50)
+        self.assertEqual(sample["memory"]["percent"], 40)
+        self.assertEqual(sample["network"]["rxBytesPerSec"], 2000)
+
+    def test_interrupted_process_iteration_keeps_marked_partial_data(self) -> None:
+        self.fs.add_proc(100, "firefox", utime=10, rss_kb=10)
+        self.fs.add_proc(101, "nvim", utime=20, rss_kb=20)
+        self.collector.sample()
+        self.fs.set_cpu(150, 0, 50, 900)
+        self.fs.set_net({"eth0": (5000, 2600)})
+        self.clock.advance(2)
+        with interrupted_process_scan(self.root):
+            sample = self.collector.sample()
+        self.assertIs(sample["processesAvailable"], False)
+        self.assertEqual(sample["processCount"], 1)
+        self.assertEqual(len(sample["processes"]), 1)
+        self.assertEqual(sample["errors"], ["process scan incomplete"])
+        self.assertEqual(sample["cpu"], 50)
+        self.assertEqual(sample["memory"]["percent"], 40)
+        self.assertEqual(sample["network"]["rxBytesPerSec"], 2000)
+
+    def test_truncated_process_scan_keeps_marked_bounded_data(self) -> None:
+        for pid in range(100, 103):
+            self.fs.add_proc(pid, "firefox", rss_kb=10)
+        with mock.patch.object(collect, "MAX_SCAN_PIDS", 2):
+            sample = self.collector.sample()
+        self.assertIs(sample["processesAvailable"], False)
+        self.assertEqual(sample["processCount"], 2)
+        self.assertEqual(sample["processes"][0]["count"], 2)
+        self.assertEqual(sample["errors"], ["process scan truncated"])
+
+    def test_process_scan_exactly_at_cap_is_available(self) -> None:
+        for pid in range(100, 102):
+            self.fs.add_proc(pid, "firefox", rss_kb=10)
+        with mock.patch.object(collect, "MAX_SCAN_PIDS", 2):
+            sample = self.collector.sample()
+        self.assertIs(sample["processesAvailable"], True)
+        self.assertEqual(sample["processCount"], 2)
+        self.assertEqual(sample["errors"], [])
+
+    def test_process_cpu_restarts_after_failed_interrupted_and_truncated_scans(self) -> None:
+        for failure in ("opening", "iteration", "truncation"):
+            with self.subTest(failure=failure):
+                observer = collect.Collector(self.root, uid=1000, self_pid=-1,
+                                             time_fn=self.clock.time, monotonic_fn=self.clock.monotonic)
+                self.fs.set_cpu(0, 0, 0, 100)
+                self.fs.add_proc(100, "firefox", utime=10, rss_kb=10)
+                self.fs.add_proc(101, "nvim", utime=10, rss_kb=10)
+                observer.sample()
+                self.fs.set_cpu(50, 0, 0, 150)
+                self.fs.add_proc(100, "firefox", utime=30, rss_kb=10)
+                self.clock.advance(2)
+                if failure == "opening":
+                    injection = mock.patch.object(collect.os, "scandir", side_effect=OSError("fixture"))
+                elif failure == "iteration":
+                    injection = interrupted_process_scan(self.root)
+                else:
+                    injection = mock.patch.object(collect, "MAX_SCAN_PIDS", 1)
+                with injection:
+                    failed = observer.sample()
+                self.assertIs(failed["processesAvailable"], False)
+
+                self.fs.set_cpu(100, 0, 0, 200)
+                self.fs.add_proc(100, "firefox", utime=50, rss_kb=10)
+                self.clock.advance(2)
+                recovered = observer.sample()
+                self.assertIs(recovered["processesAvailable"], True)
+                self.assertEqual(recovered["processCount"], 2)
+                self.assertEqual(recovered["errors"], [])
+                self.assertTrue(all(group["cpu"] is None for group in recovered["processes"]))
+
+                self.fs.set_cpu(150, 0, 0, 250)
+                self.fs.add_proc(100, "firefox", utime=70, rss_kb=10)
+                self.clock.advance(2)
+                stable = observer.sample()
+                groups = {group["key"]: group for group in stable["processes"]}
+                self.assertEqual(groups["firefox"]["cpu"], 20)
+
+    def test_failed_stream_sample_discards_process_cpu_baseline(self) -> None:
+        for error_type in (OSError, RuntimeError):
+            with self.subTest(error=error_type.__name__):
+                observer = collect.Collector(self.root, uid=1000, self_pid=-1,
+                                             time_fn=self.clock.time, monotonic_fn=self.clock.monotonic)
+                self.fs.set_cpu(0, 0, 0, 100)
+                self.fs.add_proc(100, "firefox", utime=10, rss_kb=10)
+                observer.sample()
+                self.fs.set_cpu(50, 0, 0, 150)
+                self.clock.advance(2)
+                output = io.StringIO()
+                with mock.patch.object(observer, "_sample_processes", side_effect=error_type("private detail")), \
+                     mock.patch.object(collect, "stdin_watch_fd", return_value=None), \
+                     mock.patch.object(collect, "wait_for_stop", return_value=True), \
+                     mock.patch("sys.stdout", output):
+                    self.assertEqual(collect.run_stream(observer, 1), 0)
+                failure = json.loads(output.getvalue())
+                self.assertIs(failure["processesAvailable"], False)
+                self.assertEqual(failure["errors"], ["sample failed"])
+
+                self.fs.set_cpu(100, 0, 0, 200)
+                self.fs.add_proc(100, "firefox", utime=50, rss_kb=10)
+                self.clock.advance(2)
+                recovered = observer.sample()
+                self.assertIs(recovered["processesAvailable"], True)
+                self.assertIsNone(recovered["processes"][0]["cpu"])
+
     def test_pid_reuse_does_not_use_old_ticks(self) -> None:
         self.fs.set_cpu(0, 0, 0, 100)
         self.fs.add_proc(100, "firefox", utime=1000, stime=0, starttime=10, rss_kb=100)
@@ -522,6 +662,7 @@ class SchemaAndPrivacyTests(CollectorTests):
         "memory",
         "network",
         "processes",
+        "processesAvailable",
         "processCount",
         "uptimeSeconds",
         "errors",
@@ -617,6 +758,12 @@ class SchemaAndPrivacyTests(CollectorTests):
         self.assertEqual(sample["interval"], 0)
         if sample["processes"]:
             self.assertIsNone(sample["processes"][0]["cpu"])
+
+    def test_failed_sample_fallback_marks_processes_unavailable(self) -> None:
+        sample = collect.empty_sample(1_700_000_000, ["sample failed"])
+        self.assertIs(sample["processesAvailable"], False)
+        self.assertEqual(sample["processes"], [])
+        self.assertEqual(sample["errors"], ["sample failed"])
 
 
 class CliTests(unittest.TestCase):

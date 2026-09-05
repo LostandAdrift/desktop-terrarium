@@ -1,6 +1,7 @@
 pragma Singleton
 pragma ComponentBehavior: Bound
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import "../Model.js" as Model
 
@@ -22,11 +23,14 @@ QtObject {
     property bool awaitingExit: false
     property bool spawned: false
     property int retryTicks: 0
+    property real sampleAgeMs: 0
+    property var wallClock: function() { return Date.now(); }
+    property ElapsedTimer freshness: ElapsedTimer {}
 
     readonly property bool observing: Object.keys(watches).length > 0
     readonly property bool collectorRunning: collector.running
     readonly property int collectorPid: collector.running && collector.processId > 0 ? collector.processId : 0
-    readonly property bool stale: observing && (failed || (restarting && retryTicks >= 8) || now - Math.max(observedAt, lastSample) > 9000)
+    readonly property bool stale: observing && (failed || (restarting && retryTicks >= 8) || sampleAgeMs > 9000)
 
     function watch(key, enabled) {
         if (enabled === false) {
@@ -74,8 +78,10 @@ QtObject {
             root.awaitingExit = true;
         root.restarting = true;
         root.failed = false;
-        root.observedAt = Date.now();
+        root.observedAt = root.wallClock();
         root.now = root.observedAt;
+        root.freshness.restart();
+        root.sampleAgeMs = 0;
         root.status = "Connecting to your desktop…";
         root.retryTicks = 0;
         Qt.callLater(root.syncCollector);
@@ -89,20 +95,24 @@ QtObject {
             return;
         try {
             var sample = Model.normalize(JSON.parse(line));
-            var stamp = Date.now();
+            var stamp = root.wallClock();
             root.snapshot = sample;
             root.lastSample = stamp;
             root.now = stamp;
+            root.freshness.restart();
+            root.sampleAgeMs = 0;
             root.garden = Model.updateGarden(root.garden, sample, stamp);
-            root.status = sample.errors.length ? "Some observations are unavailable." : "";
+            root.status = !sample.processesAvailable ? "Application observations are unavailable. Your garden is held in place." : sample.errors.length ? "Some observations are unavailable." : "";
         } catch (error) {
             root.status = "An observation could not be read.";
         }
     }
 
     function beginObservation() {
-        root.observedAt = Date.now();
+        root.observedAt = root.wallClock();
         root.now = root.observedAt;
+        root.freshness.restart();
+        root.sampleAgeMs = 0;
         root.failed = false;
         root.retryTicks = 0;
         root.status = "Connecting to your desktop…";
@@ -167,7 +177,8 @@ QtObject {
         running: root.observing
         repeat: true
         onTriggered: {
-            root.now = Date.now();
+            root.now = root.wallClock();
+            root.sampleAgeMs = root.freshness.elapsedMs();
             if (!root.restarting)
                 return;
             root.retryTicks = Math.min(8, root.retryTicks + 1);

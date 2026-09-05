@@ -43,11 +43,33 @@ Rectangle {
         id: tooltip
         objectName: "hint-" + root.objectName
         parent: root.hintLayer || root
-        visible: root.visible && root.hint.length > 0 && (mouse.containsMouse || root.activeFocus)
-        // Resolve again when shown or resized; the control may live in a Row.
+        visible: root.visible && withinClips && root.hint.length > 0 && (mouse.containsMouse || root.activeFocus)
+        // Observe the whole item chain. A Flickable moves its content item,
+        // leaving the control's own x/y unchanged; no polling clock is needed.
+        readonly property var geometryChain: {
+            var chain=[], item=root;
+            while(item) {
+                chain.push({item:item,x:item.x,y:item.y,width:item.width,height:item.height,
+                    scale:item.scale,rotation:item.rotation,clip:item.clip});
+                item=item.parent;
+            }
+            return chain;
+        }
         readonly property point origin: {
-            var geometry = [visible, root.x, root.y, root.width, root.height, parent.width, parent.height];
+            var geometry = [geometryChain, parent, parent.width, parent.height];
             return root.mapToItem(parent, 0, 0);
+        }
+        readonly property bool withinClips: {
+            var chain=geometryChain;
+            for(var i=1;i<chain.length;i++) {
+                var ancestor=chain[i];
+                if(ancestor.clip) {
+                    var bounds=root.mapToItem(ancestor.item,Qt.rect(0,0,root.width,root.height));
+                    if(bounds.x+bounds.width<=0 || bounds.y+bounds.height<=0
+                        || bounds.x>=ancestor.width || bounds.y>=ancestor.height)return false;
+                }
+            }
+            return true;
         }
         width: root.hintLayer ? Math.min(hintLabel.implicitWidth + 14, parent.width - 16) : hintLabel.implicitWidth + 14
         height: hintLabel.implicitHeight + 8

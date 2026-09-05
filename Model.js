@@ -20,7 +20,7 @@ function emptySnapshot() {
     return { version: 1, timestamp: 0, interval: 0, cpu: null,
         memory: { usedBytes: 0, totalBytes: 0, percent: null },
         network: { rxBytesPerSec: null, txBytesPerSec: null, interfaces: [] },
-        processes: [], processCount: 0, uptimeSeconds: 0, errors: [] };
+        processes: [], processesAvailable: false, processCount: 0, uptimeSeconds: 0, errors: [] };
 }
 
 function normalize(raw) {
@@ -50,13 +50,33 @@ function normalize(raw) {
     out.processCount = Math.max(0, Math.round(finite(raw.processCount, 0)));
     out.uptimeSeconds = Math.max(0, finite(raw.uptimeSeconds, 0));
     out.errors = Array.isArray(raw.errors) ? raw.errors.slice(0, 6).map(cleanName) : [];
+    // Additive version-1 field. Legacy error samples must also remain unknown,
+    // rather than turning an interrupted enumeration into an empty habitat.
+    out.processesAvailable = raw.processesAvailable === undefined
+        ? out.timestamp > 0 && !out.errors.some(function(e) { return e === "process scan incomplete" || e === "process scan truncated" || e === "sample failed"; })
+        : raw.processesAvailable === true;
     return out;
 }
 
 function newGarden() { return { residents: [], notes: [], observedSeconds: 0, samples: 0, nextNote: 1 }; }
+function growthForAge(age) {
+    var seconds = Math.max(0, finite(age, 0));
+    // A visible first unfurl, followed by a much slower observed-session arc.
+    // Calendar time and time spent absent do not advance either part.
+    return clamp(.35 + .25 * (1 - Math.exp(-seconds / 90)) + .4 * (1 - Math.exp(-seconds / 5400)), .35, 1);
+}
 function updateGarden(previous, snapshot, now) {
     var state = previous || newGarden();
     var seconds = clamp(finite(snapshot.interval, 0), 0, 10);
+    if (snapshot.processesAvailable === false) {
+        return { residents: state.residents.map(function(old) {
+                var held = {};
+                Object.keys(old).forEach(function(k) { held[k] = old[k]; });
+                held.cpu = null; held.memoryBytes = null; held.unavailable = true;
+                return held;
+            }), notes: state.notes.slice(), observedSeconds: state.observedSeconds,
+            samples: state.samples + 1, nextNote: state.nextNote };
+    }
     var residents = [], taken = {}, notes = state.notes.slice(), nextNote = state.nextNote;
     var byKey = Object.create(null);
     snapshot.processes.forEach(function(p) { byKey[p.key] = p; });
@@ -66,11 +86,11 @@ function updateGarden(previous, snapshot, now) {
         if (p) {
             residents.push({ key: p.key, name: p.name, count: p.count, cpu: p.cpu, memoryBytes: p.memoryBytes,
                 category: p.category, slot: old.slot, age: old.age + seconds, missing: 0,
-                growth: Math.min(1, old.growth + seconds / 180) });
+                growth: clamp(Math.max(finite(old.growth,.35),growthForAge(old.age + seconds)),.35,1), unavailable: false });
             taken[old.slot] = true; delete byKey[old.key];
         } else if (old.missing + seconds < 18) {
-            residents.push({ key: old.key, name: old.name, count: old.count, cpu: null, memoryBytes: old.memoryBytes,
-                category: old.category, slot: old.slot, age: old.age, growth: old.growth, missing: old.missing + seconds });
+            residents.push({ key: old.key, name: old.name, count: old.count, cpu: null, memoryBytes: null,
+                category: old.category, slot: old.slot, age: old.age, growth: old.growth, missing: old.missing + seconds, unavailable: false });
             taken[old.slot] = true;
         } else {
             notes.unshift({ id: nextNote++, time: now, text: old.name + " left the observed group.", kind: "departed" });
@@ -82,7 +102,7 @@ function updateGarden(previous, snapshot, now) {
         if (slot >= 7) return;
         taken[slot] = true;
         residents.push({ key: p.key, name: p.name, count: p.count, cpu: p.cpu, memoryBytes: p.memoryBytes,
-            category: p.category, slot: slot, age: 0, missing: 0, growth: 0.35 });
+            category: p.category, slot: slot, age: 0, missing: 0, growth: 0.35, unavailable: false });
         if (state.samples > 0) notes.unshift({ id: nextNote++, time: now, text: p.name + " took root.", kind: "arrival" });
     });
     return { residents: residents, notes: notes.slice(0, 24), observedSeconds: state.observedSeconds + seconds,
@@ -143,7 +163,7 @@ function demoSnapshot(step) {
             {key:"ghostty", name:"Ghostty", count:2, cpu:0.9, memoryBytes:178257920, category:"terminal"},
             {key:"music", name:"Music", count:1, cpu:1.3, memoryBytes:293601280, category:"media"},
             {key:"files", name:"Files", count:1, cpu:0.2, memoryBytes:73400320, category:"other"}
-        ], processCount:84, uptimeSeconds:20432+t*2, errors:[] };
+        ], processesAvailable:true, processCount:84, uptimeSeconds:20432+t*2, errors:[] };
     // A repeatable arrival/departure lets the journal demonstrate its actual
     // behavior. These names and counters are invented, never host activity.
     if(t%90>=28 && t%90<60)
