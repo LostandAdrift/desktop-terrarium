@@ -4,6 +4,19 @@ A small living world for Omarchy, shaped by the activity of your computer.
 
 Native QtQuick inside the Omarchy Quattro shell. Original procedural artwork, no account, no network connection, and no AI subscription required to run it.
 
+![Desktop Terrarium showing a synthetic demonstration](preview.png)
+
+[Watch the ten-second demo](https://github.com/LostandAdrift/desktop-terrarium/releases/download/v0.1.0/terrarium.webm) · [Release notes](CHANGELOG.md) · [Validation](docs/validation.md)
+
+<details>
+<summary>Dawn, Moss, and a compact window</summary>
+
+![Dawn palette, synthetic demonstration](docs/assets/dawn.png)
+![Moss palette, synthetic demonstration](docs/assets/moss.png)
+![Compact layout, synthetic demonstration](docs/assets/compact.png)
+
+</details>
+
 ## Install
 
 Requires **Omarchy 4**, Quickshell, and Python 3.10 or newer. Tested on Omarchy 4.0.2 with Qt 6.11.2. Node.js is only needed for development checks.
@@ -36,8 +49,9 @@ omarchy-shell shell summon io.github.lostandadrift.terrarium '{}'
 | P | Pause or resume motion |
 | C | Change palette |
 | D | Toggle demo |
+| A | Pin or unpin the desktop garden |
 | Tab, Enter, Space | Focus and activate controls |
-| Escape | Close |
+| Escape | Return to Garden, then close |
 
 ## Local and honest
 
@@ -74,7 +88,7 @@ If an observation fails, the panel shows its status and offers Retry. If you are
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for offline checks, opt-in native lifecycle tests, and resource measurements. Production code uses Python's standard library and QtQuick/Quickshell already present in Omarchy.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for offline checks and opt-in native lifecycle tests. The [architecture](docs/architecture.md) explains process ownership and rendering; the [validation record](docs/validation.md) includes tested configurations, resource measurements, and limits. Production code uses Python's standard library and QtQuick/Quickshell already present in Omarchy.
 
 ## License
 

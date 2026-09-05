@@ -19,7 +19,10 @@ Window {
     }
     Timer {
         interval:1500;running:true;repeat:false
-        onTriggered:view.grabToImage(function(result){result.saveToFile(window.output);console.log("RENDER_SAVED");Qt.quit();})
+        onTriggered:view.grabToImage(function(result){
+            if(!result.saveToFile(window.output)){console.error("Preview could not be written");Qt.exit(1);return;}
+            Qt.quit();
+        })
     }
     Component.onCompleted:{
         var args=Qt.application.arguments;
@@ -34,6 +37,13 @@ Window {
             else if(args[i]==="--empty"){view.demo=false;view.snapshot=Model.emptySnapshot();view.garden=Model.newGarden();view.status="Connecting to your desktop…";}
             else if(args[i]==="--dawn")view.paletteName="dawn";
             else if(args[i]==="--moss")view.paletteName="moss";
+            else if(args[i]==="--selected" && args[i+1])view.selectedKey=args[++i];
+            else if(args[i]==="--crowded"){
+                width=1120;height=640;
+                var g=JSON.parse(JSON.stringify(view.garden));
+                g.residents.push(Object.assign({},g.residents[0],{key:"services",name:"Services",category:"system",slot:6,cpu:0.3}));
+                view.garden=g;
+            }
         }
     }
 }

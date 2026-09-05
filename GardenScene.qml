@@ -11,12 +11,21 @@ Item {
     property bool animate: true
     property string selectedKey: ""
     property real phase: 0
+    property bool fitVessel: false
     signal residentSelected(string key)
-    readonly property real drawingScale: Math.min(width / 900, height / 550)
+    // Painted glass, brass loop, and plinth occupy this crop of the 900x550 plate.
+    readonly property real vesselX: 140
+    readonly property real vesselY: 12
+    readonly property real vesselW: 620
+    readonly property real vesselH: 528
+    readonly property real drawingScale: root.fitVessel
+        ? Math.min(width / vesselW, height / vesselH)
+        : Math.min(width / 900, height / 550)
     readonly property string compositionKey: JSON.stringify(residents.map(function(p) {
         return [p.key,p.category,p.slot,Math.round(p.growth*10),p.missing>0];
     })) + palette.name + Math.round(weather.water * 10)
 
+    clip: root.fitVessel
     onCompositionKeyChanged: backdrop.requestPaint()
     onVisibleChanged: if (visible) backdrop.requestPaint()
 
@@ -30,8 +39,14 @@ Item {
     Item {
         id: drawing
         width: 900; height: 550
-        anchors.centerIn: parent
+        transformOrigin: Item.TopLeft
         scale: root.drawingScale
+        x: root.fitVessel
+            ? (root.width - root.vesselW * scale) / 2 - root.vesselX * scale
+            : (root.width - 900 * scale) / 2
+        y: root.fitVessel
+            ? (root.height - root.vesselH * scale) / 2 - root.vesselY * scale
+            : (root.height - 550 * scale) / 2
 
         Canvas {
             id: backdrop
@@ -91,11 +106,16 @@ Item {
         Repeater {
             model: root.residents
             Item {
+                id: plantHit
                 required property var modelData
                 readonly property var pos: Model.positions[modelData.slot]
                 readonly property bool selected: root.selectedKey === modelData.key
-                x: pos.x-38; y: pos.y-114
-                width:76; height:135
+                readonly property bool tallFoliage: modelData.category === "browser" || modelData.category === "agent"
+                objectName: "plant-" + modelData.key
+                x: pos.x - width / 2
+                y: pos.y - (tallFoliage ? 228 : 118)
+                width: tallFoliage ? 130 : 80
+                height: tallFoliage ? 250 : 140
                 Rectangle {
                     anchors.bottom:parent.bottom; anchors.horizontalCenter:parent.horizontalCenter
                     width:60;height:16;radius:30
@@ -105,7 +125,8 @@ Item {
                 Rectangle {
                     visible:parent.selected || hit.containsMouse
                     anchors.horizontalCenter:parent.horizontalCenter
-                    y:138;width:Math.min(label.implicitWidth+18,220);height:24;radius:4
+                    anchors.top:parent.bottom;anchors.topMargin:4
+                    width:Math.min(label.implicitWidth+18,220);height:24;radius:4
                     color:root.palette.panel;border.color:root.palette.line
                     Text {
                         id:label;anchors.centerIn:parent;width:parent.width-18;text:modelData.name;elide:Text.ElideRight

@@ -14,6 +14,8 @@ The Python tests use synthetic procfs trees. The JavaScript tests exercise state
 
 The GitHub workflow runs those tests in a fresh Arch container. It cannot validate your actual Omarchy shell, compositor, or monitor setup; native integration tests remain a separate step.
 
+When Quickshell is installed, `bash scripts/check-store.sh` also tests the real observer lifecycle without opening any window. It copies the production store and collector into an isolated temporary configuration, pauses only that configuration's observer past the shutdown watchdog, then checks automatic recovery and final cleanup. It never controls the existing Omarchy shell.
+
 ## Native integration
 
 After installing a development version, these commands temporarily open the plugin on your desktop:
@@ -26,6 +28,16 @@ python3 scripts/benchmark.py --seconds 15
 The fault test terminates only the plugin's own observer process and checks recovery. Both scripts restore the original preferences and close the popup if it began closed. Run them when you are comfortable with the popup opening.
 
 Omarchy watches installed plugin files. Some changes to already-cached QML components can require `omarchy restart shell` during development. Never edit the packaged shell under `/usr/share/omarchy`.
+
+## Synthetic previews
+
+Render the real view without opening a desktop window:
+
+```sh
+bash scripts/render-previews.sh /tmp/terrarium-previews
+```
+
+Add `--video` as the second argument to record a ten-second demo with FFmpeg. The renderer and recorder use synthetic counters only. The script does not capture the desktop or install additional packages. Preview generation requires Qt's `qml` executable; video encoding also requires FFmpeg with libvpx support.
 
 ## Design and behavior
 
