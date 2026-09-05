@@ -168,7 +168,10 @@ function paintPlant(c,p,resident,opening,rasterScale,form) {
         else c.lineTo(a[2],a[3]);
         c.strokeStyle=stem.role==="trunk"?"#a8936c":p[stem.role];c.lineWidth=stem.width;c.stroke();
     });
-    form.leaves.forEach(function(l){leaf(c,l.x,l.y,l.size,l.angle,p[l.role]);});
+    // Copper ferns share the rooted frond form, with a warmer palette-derived
+    // pigment that distinguishes them from the editor's green ink ferns.
+    var copper=form.category==="terminal" ? {leaf:blendHex(p.leafDark,p.flower,.62),leafLight:blendHex(p.leafLight,p.flower,.55)} : null;
+    form.leaves.forEach(function(l){leaf(c,l.x,l.y,l.size,l.angle,copper?copper[l.role]:p[l.role]);});
     form.crowns.forEach(function(b) {
         ellipse(c,b.x,b.y,b.rx,b.ry,p[b.role]);
         c.globalAlpha=.2;leaf(c,b.x+4,b.y+4,18,-.5,p.leafLight);c.globalAlpha=1;
@@ -369,4 +372,10 @@ function mushrooms(c,x,y,s,p,r) {
         c.quadraticCurveTo(dx,-hh+5,dx-rr,-hh);c.fillStyle=i%2?p.flower:p.gold;c.fill();
         ellipse(c,dx-3,-hh-7,1.5,1.1,p.ink);ellipse(c,dx+4,-hh-4,1,1,p.ink);
     }c.restore();
+}
+
+function blendHex(a,b,amount) {
+    var first=parseInt(a.slice(1),16),second=parseInt(b.slice(1),16),result=0;
+    for(var shift=16;shift>=0;shift-=8)result|=Math.round(((first>>shift)&255)*(1-amount)+((second>>shift)&255)*amount)<<shift;
+    return "#"+("000000"+result.toString(16)).slice(-6);
 }

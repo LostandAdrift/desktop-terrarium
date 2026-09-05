@@ -130,3 +130,51 @@ test('absence and unavailable scans cannot age plants, and calendar jumps cannot
     assert.equal(model.growthForAge(NaN),.35);
     assert.ok(model.growthForAge(1e300)<=1);
 });
+test('demo growth previews preserve the complete observation state and resident identity fields', () => {
+    let base = model.newGarden();
+    for(let step=0;step<35;step++)base=model.updateGarden(base,model.demoSnapshot(step),1700000000000+step*2000);
+    assert.ok(base.residents.some(resident=>resident.missing>0));
+    assert.ok(base.notes.length>0);
+    const before=plain(base);
+    base.residents.forEach(Object.freeze);Object.freeze(base.residents);Object.freeze(base.notes);Object.freeze(base);
+    for(const age of [3600,21600]) {
+        const preview=model.demoGrowthPreview(base,age);
+        assert.notEqual(preview,base);assert.notEqual(preview.residents,base.residents);
+        assert.equal(preview.notes,base.notes);
+        const restored=plain(preview);
+        preview.residents.forEach((resident,index)=>{
+            assert.notEqual(resident,base.residents[index]);
+            assert.equal(resident.growth,model.growthForAge(age));
+            assert.ok(resident.growth>=.35 && resident.growth<=1);
+            restored.residents[index].growth=before.residents[index].growth;
+        });
+        assert.deepEqual(restored,before);
+    }
+    assert.deepEqual(plain(base),before);
+});
+test('natural, invalid and already-projected demo growth reuse unchanged state', () => {
+    const base=model.updateGarden(model.newGarden(),model.demoSnapshot(0),0);
+    for(const age of [-1,0,3601,-3600,NaN,Infinity,undefined,null,true,'3600'])
+        assert.equal(model.demoGrowthPreview(base,age),base);
+    const projected=model.demoGrowthPreview(base,3600);
+    assert.equal(model.demoGrowthPreview(projected,3600),projected);
+    const empty=model.newGarden();
+    assert.equal(model.demoGrowthPreview(empty,21600),empty);
+    assert.equal(model.demoGrowthPreview(null,21600),null);
+    assert.equal(model.demoGrowthPreview(undefined,3600),undefined);
+});
+test('new demo samples advance the base normally while preview growth stays independent', () => {
+    const initial=model.updateGarden(model.newGarden(),model.demoSnapshot(0),0);
+    const hour=model.demoGrowthPreview(initial,3600);
+    const frozenHour=plain(hour);
+    const next=model.updateGarden(initial,model.demoSnapshot(1),2000);
+    const afternoon=model.demoGrowthPreview(next,21600);
+    assert.equal(next.residents[0].age,2);
+    assert.ok(next.residents[0].growth<.37);
+    assert.equal(next.observedSeconds,4);
+    assert.equal(next.samples,2);
+    assert.equal(afternoon.residents[0].age,next.residents[0].age);
+    assert.equal(afternoon.residents[0].growth,model.growthForAge(21600));
+    assert.equal(model.demoGrowthPreview(next,-1),next);
+    assert.deepEqual(plain(hour),frozenHour);
+});

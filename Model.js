@@ -65,6 +65,26 @@ function growthForAge(age) {
     // Calendar time and time spent absent do not advance either part.
     return clamp(.35 + .25 * (1 - Math.exp(-seconds / 90)) + .4 * (1 - Math.exp(-seconds / 5400)), .35, 1);
 }
+function demoGrowthPreview(garden, age) {
+    // A visual projection only. Never feed this result into updateGarden:
+    // observation ages, readings and journal state belong to the base garden.
+    if ((age !== 3600 && age !== 21600) || !garden || !Array.isArray(garden.residents))
+        return garden;
+    var growth = growthForAge(age), changed = false;
+    var residents = garden.residents.map(function(resident) {
+        if (resident.growth === growth) return resident;
+        changed = true;
+        var projected = {};
+        Object.keys(resident).forEach(function(key) { projected[key] = resident[key]; });
+        projected.growth = growth;
+        return projected;
+    });
+    if (!changed) return garden;
+    var projectedGarden = {};
+    Object.keys(garden).forEach(function(key) { projectedGarden[key] = garden[key]; });
+    projectedGarden.residents = residents;
+    return projectedGarden;
+}
 function updateGarden(previous, snapshot, now) {
     var state = previous || newGarden();
     var seconds = clamp(finite(snapshot.interval, 0), 0, 10);
