@@ -47,10 +47,16 @@ TestCase {
         tryCompare(subject,"ready",true,4000);
         var location=path(); save(location);
         var image=savedImage(location);
-        compare(image.sourceSize.width,1800); compare(image.sourceSize.height,1100);
+        verify(Math.abs(image.sourceSize.width-1800)<=1,"Export width must not grow with display scaling");
+        verify(Math.abs(image.sourceSize.height-1100)<=1,"Export height must not grow with display scaling");
         var pixels=grabImage(image), orange=0;
-        for(var x=250;x<360;x+=10)for(var y=150;y<240;y+=10)
+        // QtTest grabs a logical-sized crop of the window at non-unit DPR.
+        // Inspect the botanical patch at its physical screen coordinates.
+        var scale=subject.captureScale;
+        for(var px=250;px<360;px+=10)for(var py=150;py<240;py+=10) {
+            var x=Math.round(px*scale),y=Math.round(py*scale);
             if(pixels.red(x,y)>pixels.green(x,y)*1.2 && pixels.red(x,y)>pixels.blue(x,y)*1.2)orange++;
+        }
         verify(orange>10,"The saved first frame must contain the finished botanical texture");
         console.log("POSTCARD_EXPORT "+location);
     }

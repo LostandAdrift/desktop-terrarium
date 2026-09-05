@@ -12,6 +12,14 @@ Item {
     readonly property bool busy:root.captureBusy
     readonly property int pixelWidth:1800
     readonly property int pixelHeight:1100
+    // Qt multiplies grabToImage's integer target size by the window DPR. Keep
+    // exports near the same pixel dimensions on every output; unusual fractional
+    // scales can round one dimension by one pixel (for example 175%).
+    readonly property real captureScale: {
+        var window=root.Window.window;
+        var scale=window && "devicePixelRatio" in window ? window.devicePixelRatio : root.Screen.devicePixelRatio;
+        return isFinite(scale) && scale>0 ? scale : 1;
+    }
     property var frozenCard:PostcardModel.create({})
     property bool captureBusy:false
     property int generation:0
@@ -53,16 +61,21 @@ Item {
             || path.indexOf("\0")>=0 || !/\.png$/i.test(path))return false;
         root.generation++;
         var captureGeneration=root.generation;
+        var scaleAtCapture=root.captureScale;
         root.captureBusy=true; root.completion=callback;
         var accepted=surface.grabToImage(function(result) {
             // A closed/locked preview may leave an already scheduled native grab
             // behind. Its generation must be checked BEFORE touching the path.
             if(!root || !root.alive || !root.captureBusy || root.generation!==captureGeneration)return;
+            if(root.captureScale!==scaleAtCapture) {
+                root.finish(captureGeneration,{ok:false,cancelled:false,error:"display_changed",generation:captureGeneration});
+                return;
+            }
             var saved=false;
             try { saved=result!==null && result.saveToFile(path); }
             catch(error) { saved=false; }
             root.finish(captureGeneration,{ok:saved,cancelled:false,error:saved?"":"save_failed",generation:captureGeneration});
-        },Qt.size(root.pixelWidth,root.pixelHeight));
+        },Qt.size(Math.max(1,Math.round(root.pixelWidth/scaleAtCapture)),Math.max(1,Math.round(root.pixelHeight/scaleAtCapture))));
         if(!accepted)
             root.finish(captureGeneration,{ok:false,cancelled:false,error:"grab_failed",generation:captureGeneration});
         // The operation was accepted, even if the native grab failed immediately

@@ -18,6 +18,10 @@ TestCase {
             garden:Model.updateGarden(Model.newGarden(),Model.demoSnapshot(3),1700000000000)
         }
     }
+    Component {
+        id:clipboardProbeComponent
+        TextEdit { textFormat:TextEdit.PlainText;visible:false }
+    }
     SignalSpy { id:closeSpy;signalName:"closeRequested" }
     SignalSpy { id:demoSpy;signalName:"demoRequested" }
     SignalSpy { id:motionSpy;signalName:"motionRequested" }
@@ -637,7 +641,7 @@ TestCase {
         compare(status.text,subject.exportStatus);compare(status.textFormat,Text.PlainText);
         compare(path.text,subject.exportPath);compare(path.textFormat,Text.PlainText);
         verify(path.visible);
-        var names=["postcardSave","postcardRefresh","postcardBack","postcardExportStatus","postcardExportPath"];
+        var names=["postcardSave","postcardRefresh","postcardBack","postcardExportStatus","postcardExportPath","postcardCopyPath"];
         for(var i=0;i<names.length;i++) {
             var control=findChild(subject,names[i]);
             var point=control.mapToItem(subject,0,0);
@@ -650,6 +654,38 @@ TestCase {
         compare(findChild(subject,"postcardBack").text,"Cancel & back");
         subject.forceActiveFocus();keyClick(Qt.Key_S,Qt.ControlModifier);
         compare(exportSpy.count,0);
+    }
+    function test_postcard_copies_full_plaintext_path_with_keyboard_feedback() {
+        subject.width=640;subject.height=480;
+        openPostcard();
+        var copy=findChild(subject,"postcardCopyPath");
+        verify(!copy.visible);
+        verify(!subject.copyPostcardPath());
+        var fullPath="/synthetic/Pictures/a directory with a deliberately long name/another long directory/Terrarium/a postcard & <b>plain text</b> 日本語.png";
+        subject.exportPath=fullPath;
+        var path=findChild(subject,"postcardExportPath");
+        compare(path.Accessible.name,"Saved location: "+fullPath);
+        compare(copy.Accessible.description,fullPath);
+        compare(copy.text,"Copy path");
+        var back=findChild(subject,"postcardBack");
+        back.forceActiveFocus();
+        keyClick(Qt.Key_Tab);
+        verify(copy.activeFocus);
+        keyClick(Qt.Key_Return);
+        verify(copy.activeFocus);
+        compare(copy.text,"Copied");
+        var probe=createTemporaryObject(clipboardProbeComponent,tests);
+        verify(probe!==null);
+        probe.paste();
+        compare(probe.text,fullPath);
+        keyClick(Qt.Key_Tab);
+        verify(!copy.activeFocus);
+        compare(subject.section,"postcard");
+        subject.exportPath="/synthetic/Pictures/Terrarium/next.png";
+        compare(copy.text,"Copy path");
+        subject.exportPath="";
+        verify(!copy.visible);
+        verify(!subject.copyPostcardPath());
     }
     function test_postcard_source_label_distinguishes_live_paused_and_empty() {
         subject.demo=false;

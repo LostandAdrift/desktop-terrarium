@@ -49,13 +49,16 @@ def check_png(path):
     with path.open("rb") as handle:
         header = handle.read(24)
         assert header[:8] == b"\x89PNG\r\n\x1a\n" and header[12:16] == b"IHDR"
-        assert struct.unpack(">II", header[16:24]) == (1800, 1100), "Export did not use its native dimensions"
+        dimensions = struct.unpack(">II", header[16:24])
+        assert abs(dimensions[0]-1800) <= 1 and abs(dimensions[1]-1100) <= 1, "Export dimensions changed with display scaling"
     assert path.stat().st_size > 10000, "Saved postcard is unexpectedly small"
+    return dimensions
 
 
 def run():
     original = state()
     created = []
+    dimensions = []
     started = time.time()
     try:
         if original["ambient"]:
@@ -79,7 +82,7 @@ def run():
             assert path not in [item[0] for item in created], "Repeated save overwrote its previous image"
             identity = path.stat()
             created.append((path, identity.st_dev, identity.st_ino))
-            check_png(path)
+            dimensions.append(check_png(path))
             if len(created) == 1:
                 # Leave and re-enter to clear completed status before the next save.
                 key("Escape")
@@ -88,7 +91,7 @@ def run():
                 until(lambda s: s["section"] == "postcard" and s["postcardReady"] and not s["exportPath"])
         key("Escape")
         until(lambda s: s["section"] == "options" and not s["exportBusy"])
-        print(json.dumps({"passed": True, "exports": 2, "pixelDimensions": [1800, 1100],
+        print(json.dumps({"passed": True, "exports": 2, "pixelDimensions": dimensions,
                           "checks": ["real keyboard preview and save", "demo without live collection", "distinct output paths",
                                      "native PNG output", "return to previous section"]}, indent=2))
     finally:

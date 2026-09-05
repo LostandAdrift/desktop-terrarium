@@ -22,6 +22,7 @@ FocusScope {
     property bool exportBusy: false
     property string exportStatus: ""
     property string exportPath: ""
+    property bool postcardPathCopied: false
     property bool active: true
     property string status: "Connecting to your desktop…"
     property bool stale: false
@@ -127,6 +128,14 @@ FocusScope {
         root.exportRequested(postcardLoader.item);
         return true;
     }
+    function copyPostcardPath() {
+        if(!root.postcardMode || !root.active || !root.visible || !root.exportPath.length)return false;
+        postcardPathClipboard.selectAll();
+        postcardPathClipboard.copy();
+        postcardPathClipboard.deselect();
+        root.postcardPathCopied=true;
+        return true;
+    }
     function cancelPostcardCapture() {
         root.exportCancelRequested();
         if(postcardLoader.item!==null)postcardLoader.item.cancelCapture();
@@ -138,6 +147,7 @@ FocusScope {
         root.postcardLoaded=false;
         root.postcardSnapshot=null;
         root.postcardSource="";
+        root.postcardPathCopied=false;
     }
     function refreshPostcard() {
         if(!root.postcardMode || !root.active || !root.visible || root.postcardSaving)return false;
@@ -248,6 +258,7 @@ FocusScope {
     onActiveChanged:if(!root.active)root.abandonPostcard()
     onVisibleChanged:if(!root.visible)root.abandonPostcard()
     onPostcardAvailableChanged:if(!root.postcardAvailable)root.abandonPostcard()
+    onExportPathChanged:root.postcardPathCopied=false
     Component.onCompleted: syncSelection()
     Component.onDestruction:if(root.postcardLoaded)root.cancelPostcardCapture()
     Keys.onPressed: function(event) {
@@ -743,16 +754,34 @@ FocusScope {
                         Text {
                             objectName:"postcardExportStatus"
                             width:parent.width
-                            text:root.exportStatus.length?root.exportStatus:root.postcardSaving?"Saving your postcard…":"PNG · 1800 × 1100 · saves to this computer"
+                            text:root.exportStatus.length?root.exportStatus:root.postcardSaving?"Saving your postcard…":"High-resolution PNG · saves to this computer"
                             textFormat:Text.PlainText;wrapMode:Text.WordWrap;maximumLineCount:2;elide:Text.ElideRight
                             font.pixelSize:12;color:root.colors.muted
                         }
-                        Text {
-                            objectName:"postcardExportPath"
+                        Item {
                             visible:root.exportPath.length>0
                             width:parent.width
-                            text:root.exportPath;textFormat:Text.PlainText;elide:Text.ElideMiddle
-                            font.family:"monospace";font.pixelSize:11;color:root.colors.gold
+                            height:visible?postcardCopyPath.height:0
+                            Text {
+                                objectName:"postcardExportPath"
+                                anchors.left:parent.left;anchors.right:postcardCopyPath.left;anchors.rightMargin:10
+                                anchors.verticalCenter:parent.verticalCenter
+                                text:root.exportPath;textFormat:Text.PlainText;elide:Text.ElideMiddle
+                                font.family:"monospace";font.pixelSize:11;color:root.colors.gold
+                                Accessible.role:Accessible.StaticText
+                                Accessible.name:"Saved location: "+root.exportPath
+                            }
+                            Control {
+                                id:postcardCopyPath
+                                objectName:"postcardCopyPath"
+                                anchors.right:parent.right
+                                width:96
+                                text:root.postcardPathCopied?"Copied":"Copy path"
+                                hintAbove:true
+                                hint:root.postcardPathCopied?"Full path copied":"Copy the complete saved path"
+                                Accessible.description:root.exportPath
+                                onClicked:root.copyPostcardPath()
+                            }
                         }
                     }
                 }
@@ -919,6 +948,13 @@ FocusScope {
                 }
             }
         }
+    }
+
+    TextEdit {
+        id:postcardPathClipboard
+        visible:false;readOnly:true;activeFocusOnTab:false
+        text:root.exportPath;textFormat:TextEdit.PlainText
+        Accessible.ignored:true
     }
     Rectangle { visible:!root.artMode && !root.postcardMode;x:24;y:parent.height-root.footerBand;width:parent.width-48;height:1;color:root.colors.line }
     Row {
