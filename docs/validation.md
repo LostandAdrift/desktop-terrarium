@@ -18,7 +18,7 @@ This is a record of checks performed on September 4, 2026, not a guarantee for e
 - Installation checks passed with an active observer: disable stopped the child and unloaded IPC; re-enable resumed observations; removal stopped the child and removed the installed copy; a fresh clone from the public repository started and closed correctly with a clean Git checkout.
 - Native synthetic-demo rendering was inspected in the actual Omarchy panel. The shell log contained no Terrarium warnings after the lifecycle checks.
 
-Core implementation commit `01bf044` passed [GitHub Actions](https://github.com/LostandAdrift/desktop-terrarium/actions/runs/33931085267), including the delayed-shutdown regression. Each release is made only after its source checks pass; the workflow is visible in the repository's **Actions** tab. Run instructions are in [CONTRIBUTING.md](../CONTRIBUTING.md).
+Release candidate `52bbbea` passed [GitHub Actions](https://github.com/LostandAdrift/desktop-terrarium/actions/runs/33931788731), including the delayed-shutdown regression. The same commit passed all eight native smoke checks after a standard plugin update from GitHub, with a clean installed checkout and no Terrarium warnings in the shell log. Each release is made only after its source checks pass; the workflow is visible in the repository's **Actions** tab. Run instructions are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Resource measurements
 
